@@ -1,0 +1,10 @@
+let a = 1;
+let b = 1;
+
+while a < 100 {
+    print! a;
+    
+    let z = b;
+    b = a + b;
+    a = z;
+};

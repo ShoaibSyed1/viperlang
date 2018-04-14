@@ -1,0 +1,101 @@
+use std::str::FromStr;
+
+use ast::{BinOp, Block, Expr, ItemPath, Literal, Stmt, Type, UnOp};
+
+grammar;
+
+pub Block: Block = <s:Stmt*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| Expr::Literal(Literal::Void))));
+
+Stmt: Stmt = {
+    "let" <i:Ident> <t:(":" <Type>)?> "=" <e:Expr> ";" => Stmt::Let(i, t, e),
+    <i:Ident> "=" <e:Expr> ";" => Stmt::Assign(i, e),
+    <e:Expr> ";" => Stmt::Expr(e),
+
+    "print" "!" <e:Expr> ";" => Stmt::Print(e),
+};
+
+Expr: Expr = <ExprAdd> => <>;
+
+ExprAdd: Expr = {
+    <l:ExprMul> "+" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::Add, Box::new(r)),
+    <l:ExprMul> "-" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::Sub, Box::new(r)),
+    <ExprMul> => <>,
+};
+
+ExprMul: Expr = {
+    <l:ExprEq> "*" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Mul, Box::new(r)),
+    <l:ExprEq> "/" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Div, Box::new(r)),
+    <ExprEq> => <>,
+};
+
+ExprEq: Expr = {
+    <l:ExprCmp> "==" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Eq, Box::new(r)),
+    <l:ExprCmp> "!=" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Neq, Box::new(r)),
+    <ExprCmp> => <>,
+};
+
+ExprCmp: Expr = {
+    <l:ExprUnary> ">" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Gt, Box::new(r)),
+    <l:ExprUnary> ">=" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Gteq, Box::new(r)),
+    <l:ExprUnary> "<" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Lt, Box::new(r)),
+    <l:ExprUnary> "<=" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Lteq, Box::new(r)),
+    <ExprUnary> => <>,
+};
+
+ExprUnary: Expr = {
+    "-" <ExprUnary> => Expr::UnOp(UnOp::Neg, Box::new(<>)),
+    "!" <ExprUnary> => Expr::UnOp(UnOp::Not, Box::new(<>)),
+    <ExprPrimary> => <>,
+};
+
+ExprPrimary: Expr = {
+    "(" <Expr> ")" => <>,
+    "{" <Block> "}" => Expr::Block(<>),
+    "cast" <t:Type> "(" <e:Expr> ")" => Expr::Cast(t, Box::new(e)),
+    <Literal> => Expr::Literal(<>),
+    <FlowExpr> => <>,
+};
+
+FlowExpr: Expr = {
+    <IfExpr> => <>,
+    <WhileExpr> => <>,
+};
+
+IfExpr: Expr = "if" <c:Expr> "{" <b:Block> "}" <el:Else?> => Expr::If(Box::new(c), b, el);
+
+Else: Block = {
+    "else" "{" <Block> "}" => <>,
+    "else" "if" <c:Expr> "{" <b:Block> "}" <e:Else?> => Block(Vec::new(), Box::new(Expr::If(Box::new(c), b, e))),
+};
+
+WhileExpr: Expr = "while" <c:Expr> "{" <b:Block> "}" => Expr::While(Box::new(c), b);
+
+Literal: Literal = {
+    "void" => Literal::Void,
+    "true" => Literal::Boolean(true),
+    "false" => Literal::Boolean(false),
+    <Float> => Literal::Float(<>),
+    <Integer> => Literal::Integer(<>),
+    <String> => Literal::String(<>),
+    <ItemPath> => Literal::Ident(<>),
+};
+
+Type: Type = {
+    "bool" => Type::Boolean,
+    "int" => Type::Integer,
+    "float" => Type::Float,
+    "String" => Type::String,
+    "void" => Type::Void,
+};
+
+ItemPath: ItemPath = <i1:Ident> <is:("::" <Ident>)*> => {
+    let mut is = is;
+    is.push(i1);
+    ItemPath(is)
+};
+
+Float: f64 = <num:r"[0-9]+\.[0-9]+"> => f64::from_str(num).unwrap();
+Integer: i64 = <num:r"[0-9]+"> => i64::from_str(num).unwrap();
+String: String = <r#""[^"\\]*((\\.)*[^"\\]*)*""#> => <>[1..(<>.len()-1)].to_owned();
+
+Ident: String = <r"[_a-zA-Z]+[_a-zA-Z0-9]*"> => <>.to_owned();

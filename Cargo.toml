@@ -1,0 +1,12 @@
+[package]
+name = "viperlang"
+version = "0.1.0"
+authors = ["560117"]
+build = "build.rs"
+
+[dependencies]
+lalrpop-util = "0.15"
+regex = "0.2.1"
+
+[build-dependencies]
+lalrpop = "0.15"
