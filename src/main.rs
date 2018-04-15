@@ -1,27 +1,33 @@
-pub mod ast;
-pub mod interpreter;
-pub mod grammar;
-mod grammar_util;
-
-use ast::Module;
+mod chunk;
+mod disassembler;
+mod opcode;
+mod value;
+mod vm;
 
 fn main() {
-    use interpreter::Interpreter;
+    use chunk::Chunk;
+    use vm::Vm;
 
-    let block = read_file();
+    let mut chunk = Chunk::new();
+    let c1 = chunk.add_constant(5.0);
+    let c2 = chunk.add_constant(-10.0);
+
+    chunk.add_code(opcode::CONSTANT, 0);
+    chunk.add_code(c1, 0);
+    chunk.add_code(opcode::NEGATE, 0);
+
+    chunk.add_code(opcode::CONSTANT, 0);
+    chunk.add_code(c2, 0);
     
-    let mut interpreter = Interpreter::new();
+    chunk.add_code(opcode::DIV, 0);
 
-    interpreter.eval_module(&block).unwrap();
-}
+    chunk.add_code(opcode::CONSTANT, 0);
+    chunk.add_code(c1, 0);
+    
+    chunk.add_code(opcode::ADD, 0);
 
-fn read_file() -> Module {
-    use std::fs::File;
-    use std::io::Read;
+    chunk.add_code(opcode::RETURN, 1);
 
-    let mut file = File::open("test.lang").expect("Failed to open file 'test.lang'");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).expect("Failed to read file 'test.lang'");
-
-    grammar::ModuleParser::new().parse(&contents).unwrap()
+    let mut vm = Vm::new();
+    println!("{:?}", vm.interpret(chunk));
 }
