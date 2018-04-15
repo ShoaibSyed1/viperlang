@@ -2,6 +2,15 @@ fn main() {
     print! factorial(n: 5);
 }
 
+class Animal {
+    let name: String;
+    let age: int = 0;
+
+    self fn new(name: String) {
+        let name = name;
+    }
+}
+
 fn factorial(n: int): int =
     if n <= 1 { n }
     else { n * factorial(n - 1) };

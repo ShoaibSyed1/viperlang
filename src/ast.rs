@@ -1,6 +1,25 @@
 pub struct Module {
+    pub classes: Vec<Class>,
     pub functions: Vec<Function>,
 }
+
+#[derive(Clone)]
+pub struct Class {
+    pub name: String,
+    pub fields: Vec<Field>,
+    pub functions: Vec<Function>,
+    pub methods: Vec<Method>,
+}
+
+#[derive(Clone)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
+    pub default: Option<Literal>,
+}
+
+#[derive(Clone)]
+pub struct Method(pub Function);
 
 #[derive(Clone)]
 pub struct Function {

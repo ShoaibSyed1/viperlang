@@ -1,10 +1,67 @@
 use std::str::FromStr;
 
-use ast::{Arg, BinOp, Block, Expr, Function, ItemPath, Literal, Module, Param, Stmt, Type, UnOp};
+use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, Literal, Method, Module, Param, Stmt, Type, UnOp};
+use grammar_util::{ModuleItem, ClassItem};
 
 grammar;
 
-pub Module: Module = <Function*> => Module { functions: <> };
+pub Module: Module = <ModuleItem*> => {
+    let mut classes = Vec::new();
+    let mut functions = Vec::new();
+
+    for item in <> {
+        match item {
+            ModuleItem::Class(class) => classes.push(class),
+            ModuleItem::Function(function) => functions.push(function),
+        }
+    }
+
+    Module {
+        classes: classes,
+        functions: functions,
+    }
+};
+
+ModuleItem: ModuleItem = {
+    <Class> => ModuleItem::Class(<>),
+    <Function> => ModuleItem::Function(<>),
+};
+
+Class: Class = {
+    "class" <i:Ident> "{" <items:ClassItem*> "}" => {
+        let mut fields = Vec::new();
+        let mut functions = Vec::new();
+        let mut methods = Vec::new();
+        for item in items {
+            match item {
+                ClassItem::Field(field) => fields.push(field),
+                ClassItem::Function(function) => functions.push(function),
+                ClassItem::Method(method) => methods.push(method),
+            }
+        }
+
+        Class {
+            name: i,
+            fields: fields,
+            functions: functions,
+            methods: methods,
+        }
+    }
+};
+
+ClassItem: ClassItem = {
+    <Field> => ClassItem::Field(<>),
+    <Function> => ClassItem::Function(<>),
+    <Method> => ClassItem::Method(<>),
+};
+
+Field: Field = "let" <i:Ident> ":" <t:Type> <d:("=" <Literal>)?> ";" => Field {
+    name: i,
+    ty: t,
+    default: d,
+};
+
+Method: Method = "self" <Function> => Method(<>);
 
 Function: Function = {
     "fn" <i:Ident> "(" <params:Params> ")" <ret:(":" <Type>)?> "{" <b:Block> "}" => Function {

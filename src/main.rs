@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod interpreter;
 pub mod grammar;
+mod grammar_util;
 
 use ast::Module;
 

@@ -5,3 +5,6 @@
 - Classes
 - Methods
 - For Loops (Iterators)
+- Proper Modules
+- C Modules [aka call c_module::func() passing Vec<Value> to C module]
+- C Bindings [aka converting int to c_int32 to call (load sdl.dll)(sdl_init(i32))]
