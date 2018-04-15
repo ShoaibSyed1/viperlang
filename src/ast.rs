@@ -1,13 +1,37 @@
+pub struct Module {
+    pub functions: Vec<Function>,
+}
+
+#[derive(Clone)]
+pub struct Function {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub ret: Type,
+    pub body: Expr,
+}
+
+#[derive(Clone)]
+pub struct Param {
+    pub name: String,
+    pub ty: Type,
+    pub default: Option<Literal>,
+}
+
+#[derive(Clone)]
 pub struct Block(pub Vec<Stmt>, pub Box<Expr>);
 
+#[derive(Clone)]
 pub enum Stmt {
     Let(String, Option<Type>, Expr),
     Assign(String, Expr),
     Expr(Expr),
 
+    Return(Expr),
+
     Print(Expr),
 }
 
+#[derive(Clone)]
 pub enum Expr {
     UnOp(UnOp, Box<Expr>),
     BinOp(Box<Expr>, BinOp, Box<Expr>),
@@ -17,10 +41,13 @@ pub enum Expr {
 
     If(Box<Expr>, Block, Option<Block>),
     While(Box<Expr>, Block),
+
+    Call(Box<Expr>, Vec<Arg>),
     
     Cast(Type, Box<Expr>),
 }
 
+#[derive(Clone)]
 pub enum Literal {
     Boolean(bool),
     Integer(i64),
@@ -30,11 +57,13 @@ pub enum Literal {
     Void,
 }
 
+#[derive(Clone)]
 pub enum UnOp {
     Neg,
     Not,
 }
 
+#[derive(Clone)]
 pub enum BinOp {
     Add,
     Sub,
@@ -50,6 +79,13 @@ pub enum BinOp {
     Lteq,
 }
 
+#[derive(Clone)]
+pub struct Arg {
+    pub name: Option<String>,
+    pub expr: Expr,
+}
+
+#[derive(Clone)]
 pub enum Type {
     Boolean,
     Integer,
@@ -59,4 +95,5 @@ pub enum Type {
     Void,
 }
 
+#[derive(Clone)]
 pub struct ItemPath(pub Vec<String>);

@@ -1,4 +1,4 @@
-use ast::{BinOp, Block, Expr, Literal, Stmt, Type as AstType, UnOp};
+use ast::{Arg, BinOp, Block, Expr, Function as AstFunction, Literal, Module, Stmt, Type as AstType, UnOp};
 
 mod environment;
 mod error;
@@ -6,7 +6,7 @@ mod value;
 
 use self::environment::Environment;
 use self::error::{Error, ErrorKind};
-use self::value::{Type, Value, ValueRc};
+use self::value::{Function, FunctionDef, Param, Type, Value, ValueRc};
 
 pub struct Interpreter {
     env: Box<Environment>,
@@ -17,6 +17,18 @@ impl Interpreter {
         Interpreter {
             env: Box::new(Environment::new(None)),
         }
+    }
+
+    pub fn eval_module(&mut self, module: &Module) -> Result<(), Error> {
+        for function in &module.functions {
+            self.convert_function(function)?;
+        }
+
+        if let Some(value) = self.env.get("main") {
+            self.call(&value, &[])?;
+        }
+
+        Ok(())
     }
 
     pub fn eval_block(&mut self, block: &Block) -> Result<ValueRc, Error> {
@@ -60,6 +72,12 @@ impl Interpreter {
                 Ok(())
             }
 
+            &Stmt::Return(ref expr) => {
+                let val = self.eval_expr(expr)?;
+
+                Err(Error::new(ErrorKind::Return(val)))
+            }
+
             &Stmt::Print(ref expr) => {
                 let val = self.eval_expr(expr)?;
 
@@ -98,7 +116,15 @@ impl Interpreter {
             },
             &Expr::Literal(ref literal) => self.eval_literal(literal),
 
-            &Expr::Block(ref block) => self.eval_block(block),
+            &Expr::Block(ref block) => self.eval_block(block),            
+
+            &Expr::If(ref cond, ref block, ref else_block) => self.eval_if(cond, block, else_block),
+            &Expr::While(ref cond, ref block) => self.eval_while(cond, block),
+
+            &Expr::Call(ref expr, ref args) => {
+                let callable = self.eval_expr(expr)?;
+                self.call(&callable, args)
+            }
 
             &Expr::Cast(ref ast_type, ref expr) => {
                 let val = self.eval_expr(expr)?;
@@ -106,9 +132,6 @@ impl Interpreter {
 
                 self.do_cast(&ty, &val)
             }
-
-            &Expr::If(ref cond, ref block, ref else_block) => self.eval_if(cond, block, else_block),
-            &Expr::While(ref cond, ref block) => self.eval_while(cond, block),
         }
     }
 
@@ -309,6 +332,43 @@ impl Interpreter {
         }
     }
 
+    fn call(&mut self, val: &Value, args: &[Arg]) -> Result<ValueRc, Error> {
+        let func = match val {
+            &Value::Function(ref func) => func,
+            _ => return Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'call' for this type".to_owned()))),
+        };
+
+        let mut vals = Vec::new();
+        for arg in args {
+            vals.push(self.eval_expr(&arg.expr)?);
+        }
+
+        if func.def.params.len() != vals.len() {
+            panic!("num args did not match num params");
+        }
+
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
+        self.env = Box::new(env);       
+
+        for i in 0..(func.def.params.len()) {
+            self.env.create(func.def.params[i].name.clone(), vals[i].clone())?;
+        }
+
+        let ret = match self.eval_expr(&func.body) {
+            Ok(val) => val,
+            Err(Error { kind: ErrorKind::Return(val) }) => val,
+            Err(err) => return Err(err),
+        };
+
+        if &ret.get_type() != &*func.def.ret {
+            return Err(Error::new(ErrorKind::TypeMismatch(ret.get_type(), (&*func.def.ret).clone(), "tried to return 'type1' from function with return type 'type2'".to_owned())));
+        }
+
+        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+
+        Ok(ret)
+    }
+
     fn ast_type_to_runtime_type(&self, ast_type: &AstType) -> Result<Type, Error> {
         match ast_type {
             &AstType::Boolean => Ok(Type::Boolean),
@@ -318,5 +378,41 @@ impl Interpreter {
             &AstType::Custom(_) => unimplemented!(),
             &AstType::Void => Ok(Type::Void),
         }
+    }
+
+    fn convert_function(&mut self, function: &AstFunction) -> Result<(), Error> {
+        let mut params = Vec::new();
+
+        for ast_param in &function.params {
+            let default = if let Some(ref literal) = ast_param.default {
+                if let &Literal::Ident(_) = literal {
+                    return Err(Error::new(ErrorKind::InvalidFunction("cannot use identifier as default parameter".to_owned())));
+                } else {
+                    Some(self.eval_literal(literal)?)
+                }
+            } else { None };
+
+            params.push(Param {
+                name: ast_param.name.clone(),
+                ty: self.ast_type_to_runtime_type(&ast_param.ty)?,
+                default: default,
+            });
+        }
+
+        let ret = self.ast_type_to_runtime_type(&function.ret)?;
+
+        let body = function.body.clone();
+
+        let runtime_func = Function {
+            def: FunctionDef {
+                params: params,
+                ret: Box::new(ret),
+            },
+            body: body,
+        };
+
+        self.env.create(function.name.clone(), Value::Function(runtime_func).into())?;
+
+        Ok(())
     }
 }

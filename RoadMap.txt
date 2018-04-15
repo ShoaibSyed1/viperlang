@@ -1,4 +1,7 @@
-- Control Flow Expressions (If+, Else If*, While, For) *
+- Control Flow Expressions (If+, Else If+, While*) *
 - Patterns
 - Types as values
-- Functions
+- Functions (Functions+, Named Arguments*) *
+- Classes
+- Methods
+- For Loops (Iterators)

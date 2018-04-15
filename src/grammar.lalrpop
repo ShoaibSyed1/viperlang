@@ -1,8 +1,39 @@
 use std::str::FromStr;
 
-use ast::{BinOp, Block, Expr, ItemPath, Literal, Stmt, Type, UnOp};
+use ast::{Arg, BinOp, Block, Expr, Function, ItemPath, Literal, Module, Param, Stmt, Type, UnOp};
 
 grammar;
+
+pub Module: Module = <Function*> => Module { functions: <> };
+
+Function: Function = {
+    "fn" <i:Ident> "(" <params:Params> ")" <ret:(":" <Type>)?> "{" <b:Block> "}" => Function {
+        name: i,
+        params: params,
+        ret: ret.unwrap_or(Type::Void),
+        body: Expr::Block(b),
+    },
+    "fn" <i:Ident> "(" <params:Params> ")" <ret:(":" <Type>)?> "=" <e:Expr> ";" => Function {
+        name: i,
+        params: params,
+        ret: ret.unwrap_or(Type::Void),
+        body: e,
+    },
+};
+
+Params: Vec<Param> = <params:(<Param> ",")*> <p:Param?> => {
+    let mut params = params;
+    if let Some(p) = p {
+        params.push(p);
+    }
+    params
+};
+
+Param: Param = <i:Ident> ":" <t:Type> <d:("=" <Literal>)?> => Param {
+    name: i,
+    ty: t,
+    default: d,
+};
 
 pub Block: Block = <s:Stmt*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| Expr::Literal(Literal::Void))));
 
@@ -10,6 +41,8 @@ Stmt: Stmt = {
     "let" <i:Ident> <t:(":" <Type>)?> "=" <e:Expr> ";" => Stmt::Let(i, t, e),
     <i:Ident> "=" <e:Expr> ";" => Stmt::Assign(i, e),
     <e:Expr> ";" => Stmt::Expr(e),
+
+    "return" <Expr?> ";" => Stmt::Return(<>.unwrap_or(Expr::Literal(Literal::Void))),
 
     "print" "!" <e:Expr> ";" => Stmt::Print(e),
 };
@@ -54,6 +87,7 @@ ExprPrimary: Expr = {
     "cast" <t:Type> "(" <e:Expr> ")" => Expr::Cast(t, Box::new(e)),
     <Literal> => Expr::Literal(<>),
     <FlowExpr> => <>,
+    <e:ExprPrimary> "(" <a:Args> ")" => Expr::Call(Box::new(e), a),
 };
 
 FlowExpr: Expr = {
@@ -79,6 +113,16 @@ Literal: Literal = {
     <String> => Literal::String(<>),
     <ItemPath> => Literal::Ident(<>),
 };
+
+Args: Vec<Arg> = <args:(<Arg> ",")*> <a1:Arg?> => {
+    let mut args = args;
+    if let Some(a1) = a1 {
+        args.push(a1);
+    }
+    args
+};
+
+Arg: Arg = <name:(<Ident> ":")?> <expr:Expr> => Arg { name: name, expr: expr };
 
 Type: Type = {
     "bool" => Type::Boolean,

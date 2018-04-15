@@ -1,4 +1,4 @@
-use interpreter::value::{Value, Type};
+use interpreter::value::{Value, ValueRc, Type};
 
 #[derive(Debug)]
 pub struct Error {
@@ -18,4 +18,7 @@ pub enum ErrorKind {
     UnknownName(String),
     TypeMismatch(Type, Type, String),
     InvalidCast(Type, Value, String),
+    InvalidFunction(String),
+
+    Return(ValueRc),
 }

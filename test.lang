@@ -1,10 +1,7 @@
-let a = 1;
-let b = 1;
+fn main() {
+    print! factorial(n: 5);
+}
 
-while a < 100 {
-    print! a;
-    
-    let z = b;
-    b = a + b;
-    a = z;
-};
+fn factorial(n: int): int =
+    if n <= 1 { n }
+    else { n * factorial(n - 1) };

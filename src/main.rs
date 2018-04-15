@@ -2,7 +2,7 @@ pub mod ast;
 pub mod interpreter;
 pub mod grammar;
 
-use ast::Block;
+use ast::Module;
 
 fn main() {
     use interpreter::Interpreter;
@@ -11,10 +11,10 @@ fn main() {
     
     let mut interpreter = Interpreter::new();
 
-    interpreter.eval_block(&block).unwrap();
+    interpreter.eval_module(&block).unwrap();
 }
 
-fn read_file() -> Block {
+fn read_file() -> Module {
     use std::fs::File;
     use std::io::Read;
 
@@ -22,5 +22,5 @@ fn read_file() -> Block {
     let mut contents = String::new();
     file.read_to_string(&mut contents).expect("Failed to read file 'test.lang'");
 
-    grammar::BlockParser::new().parse(&contents).unwrap()
+    grammar::ModuleParser::new().parse(&contents).unwrap()
 }
