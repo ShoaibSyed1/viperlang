@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, Literal, Method, Module, Param, Stmt, Type, UnOp};
+use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, Literal, MakeArg, Method, Module, Param, Stmt, Type, UnOp};
 use grammar_util::{ModuleItem, ClassItem};
 
 grammar;
@@ -51,17 +51,16 @@ Class: Class = {
 
 ClassItem: ClassItem = {
     <Field> => ClassItem::Field(<>),
-    <Function> => ClassItem::Function(<>),
+    "class" <Function> => ClassItem::Function(<>),
     <Method> => ClassItem::Method(<>),
 };
 
-Field: Field = "let" <i:Ident> ":" <t:Type> <d:("=" <Literal>)?> ";" => Field {
+Field: Field = "let" <i:Ident> ":" <t:Type> ";" => Field {
     name: i,
     ty: t,
-    default: d,
 };
 
-Method: Method = "self" <Function> => Method(<>);
+Method: Method = <Function> => Method(<>);
 
 Function: Function = {
     "fn" <i:Ident> "(" <params:Params> ")" <ret:(":" <Type>)?> "{" <b:Block> "}" => Function {
@@ -107,34 +106,40 @@ Stmt: Stmt = {
 Expr: Expr = <ExprAdd> => <>;
 
 ExprAdd: Expr = {
-    <l:ExprMul> "+" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::Add, Box::new(r)),
-    <l:ExprMul> "-" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::Sub, Box::new(r)),
+    <l:ExprAdd> "+" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Add, Box::new(r)),
+    <l:ExprAdd> "-" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Sub, Box::new(r)),
     <ExprMul> => <>,
 };
 
 ExprMul: Expr = {
-    <l:ExprEq> "*" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Mul, Box::new(r)),
-    <l:ExprEq> "/" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Div, Box::new(r)),
+    <l:ExprMul> "*" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Mul, Box::new(r)),
+    <l:ExprMul> "/" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Div, Box::new(r)),
     <ExprEq> => <>,
 };
 
 ExprEq: Expr = {
-    <l:ExprCmp> "==" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Eq, Box::new(r)),
-    <l:ExprCmp> "!=" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Neq, Box::new(r)),
+    <l:ExprEq> "==" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Eq, Box::new(r)),
+    <l:ExprEq> "!=" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Neq, Box::new(r)),
     <ExprCmp> => <>,
 };
 
 ExprCmp: Expr = {
-    <l:ExprUnary> ">" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Gt, Box::new(r)),
-    <l:ExprUnary> ">=" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Gteq, Box::new(r)),
-    <l:ExprUnary> "<" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Lt, Box::new(r)),
-    <l:ExprUnary> "<=" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Lteq, Box::new(r)),
+    <l:ExprCmp> ">" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Gt, Box::new(r)),
+    <l:ExprCmp> ">=" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Gteq, Box::new(r)),
+    <l:ExprCmp> "<" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Lt, Box::new(r)),
+    <l:ExprCmp> "<=" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Lteq, Box::new(r)),
     <ExprUnary> => <>,
 };
 
 ExprUnary: Expr = {
     "-" <ExprUnary> => Expr::UnOp(UnOp::Neg, Box::new(<>)),
     "!" <ExprUnary> => Expr::UnOp(UnOp::Not, Box::new(<>)),
+    <ExprDot> => <>,
+};
+
+ExprDot: Expr = {
+    <e:ExprDot> "." <i:Ident> => Expr::Dot(Box::new(e), i),
+    <e:ExprDot> "(" <a:Args> ")" => Expr::Call(Box::new(e), a),
     <ExprPrimary> => <>,
 };
 
@@ -144,7 +149,7 @@ ExprPrimary: Expr = {
     "cast" <t:Type> "(" <e:Expr> ")" => Expr::Cast(t, Box::new(e)),
     <Literal> => Expr::Literal(<>),
     <FlowExpr> => <>,
-    <e:ExprPrimary> "(" <a:Args> ")" => Expr::Call(Box::new(e), a),
+    "make" <e:ExprPrimary> "{" <a:MakeArgs> "}" => Expr::Make(Box::new(e), a),
 };
 
 FlowExpr: Expr = {
@@ -181,11 +186,22 @@ Args: Vec<Arg> = <args:(<Arg> ",")*> <a1:Arg?> => {
 
 Arg: Arg = <name:(<Ident> ":")?> <expr:Expr> => Arg { name: name, expr: expr };
 
+MakeArgs: Vec<MakeArg> = <margs:(<MakeArg> ",")*> <m1:MakeArg?> => {
+    let mut margs = margs;
+    if let Some(m1) = m1 {
+        margs.push(m1);
+    }
+    margs
+};
+
+MakeArg: MakeArg = <name:Ident> ":" <expr:Expr> => MakeArg { name: name, expr: expr };
+
 Type: Type = {
     "bool" => Type::Boolean,
     "int" => Type::Integer,
     "float" => Type::Float,
     "String" => Type::String,
+    <Ident> => Type::Class(<>),
     "void" => Type::Void,
 };
 

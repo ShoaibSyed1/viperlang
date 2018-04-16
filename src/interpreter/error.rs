@@ -19,6 +19,8 @@ pub enum ErrorKind {
     TypeMismatch(Type, Type, String),
     InvalidCast(Type, Value, String),
     InvalidFunction(String),
+    InvalidClass(String, String),
+    UnknownField(Value, String),
 
     Return(ValueRc),
 }

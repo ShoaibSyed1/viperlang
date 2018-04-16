@@ -1,4 +1,7 @@
-use ast::{Arg, BinOp, Block, Expr, Function as AstFunction, Literal, Module, Stmt, Type as AstType, UnOp};
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Field, Function as AstFunction, Literal, MakeArg, Method as AstMethod, Module, Stmt, Type as AstType, UnOp};
 
 mod environment;
 mod error;
@@ -6,7 +9,7 @@ mod value;
 
 use self::environment::Environment;
 use self::error::{Error, ErrorKind};
-use self::value::{Function, FunctionDef, Param, Type, Value, ValueRc};
+use self::value::{Class, ClassDef, Function, FunctionDef, Method, Object, Param, Type, Value, ValueRc};
 
 pub struct Interpreter {
     env: Box<Environment>,
@@ -22,6 +25,10 @@ impl Interpreter {
     pub fn eval_module(&mut self, module: &Module) -> Result<(), Error> {
         for function in &module.functions {
             self.convert_function(function)?;
+        }
+
+        for class in &module.classes {
+            self.convert_class(class)?;
         }
 
         if let Some(value) = self.env.get("main") {
@@ -126,6 +133,16 @@ impl Interpreter {
                 self.call(&callable, args)
             }
 
+            &Expr::Make(ref expr, ref args) => {
+                let makeable = self.eval_expr(expr)?;
+                self.make(&makeable, args)
+            }
+
+            &Expr::Dot(ref expr, ref ident) => {
+                let val = self.eval_expr(expr)?;
+                self.dot(val, ident)
+            }
+
             &Expr::Cast(ref ast_type, ref expr) => {
                 let val = self.eval_expr(expr)?;
                 let ty = self.ast_type_to_runtime_type(ast_type)?;
@@ -171,7 +188,7 @@ impl Interpreter {
         Ok(Value::Void.into())
     }
 
-    fn eval_literal(&mut self, literal: &Literal) -> Result<ValueRc, Error> {
+    fn eval_literal(&self, literal: &Literal) -> Result<ValueRc, Error> {
         match literal {
             &Literal::Boolean(val) => Ok(Value::Boolean(val).into()),
             &Literal::Integer(val) => Ok(Value::Integer(val).into()),
@@ -333,22 +350,33 @@ impl Interpreter {
     }
 
     fn call(&mut self, val: &Value, args: &[Arg]) -> Result<ValueRc, Error> {
-        let func = match val {
-            &Value::Function(ref func) => func,
-            _ => return Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'call' for this type".to_owned()))),
-        };
+        let err = Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'call' for this type".to_owned()));
 
         let mut vals = Vec::new();
         for arg in args {
             vals.push(self.eval_expr(&arg.expr)?);
         }
 
-        if func.def.params.len() != vals.len() {
+        if vals.len() != (match val {
+            &Value::Function(ref func) => func.def.params.len(),
+            &Value::Method(ref method, _) => method.0.def.params.len(),
+            _ => return Err(err),
+        }) {
             panic!("num args did not match num params");
         }
 
         let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
-        self.env = Box::new(env);       
+        self.env = Box::new(env);
+
+        let func = match val {
+            &Value::Function(ref func) => func,
+            &Value::Method(ref method, ref obj) => {
+                self.env.create("self".to_owned(), ValueRc::clone(obj))?;
+
+                &method.0
+            },
+            _ => return Err(err),
+        };
 
         for i in 0..(func.def.params.len()) {
             self.env.create(func.def.params[i].name.clone(), vals[i].clone())?;
@@ -369,18 +397,87 @@ impl Interpreter {
         Ok(ret)
     }
 
+    fn make(&mut self, makeable: &Value, args: &[MakeArg]) -> Result<ValueRc, Error> {
+        let class = match makeable {
+            &Value::Class(ref class) => class,
+            _ => return Err(Error::new(ErrorKind::TypeMismatch(makeable.get_type(), makeable.get_type(), "no implementation of 'make' for this type".to_owned()))),
+        };
+
+        let mut fields = HashMap::new();
+
+        for arg in args {
+            let val = self.eval_expr(&arg.expr)?;
+            match class.def.fields.get(&arg.name) {
+                Some(ty) => {
+                    if &val.get_type() == ty {
+                        fields.insert(arg.name.clone(), val);
+                    } else {
+                        return Err(Error::new(ErrorKind::TypeMismatch(val.get_type().clone(), ty.clone(), "class has 'type2' for field, not 'type1'".to_owned())));
+                    }
+                },
+                None => return Err(Error::new(ErrorKind::UnknownName(format!("class has no field '{}'", arg.name)))),
+            }
+        }
+
+        for key in class.def.fields.keys() {
+            if !fields.contains_key(key) {
+                return Err(Error::new(ErrorKind::InvalidClass("".to_owned(), format!("no initializer for '{} 'found", key))));
+            }
+        }
+
+        Ok(Value::Object(Object {
+            class: Rc::clone(class),
+            fields: fields,
+        }).into())
+    }
+
+    fn dot(&mut self, val: ValueRc, ident: &str) -> Result<ValueRc, Error> {
+        match &*val {
+            &Value::Object(ref obj) => {
+                match obj.fields.get(ident) {
+                    Some(val) => Ok(ValueRc::clone(val)),
+                    None => {
+                        match obj.class.methods.get(ident) {
+                            Some(method) => Ok(Value::Method(Rc::clone(method), ValueRc::clone(&val)).into()),
+                            None => Err(Error::new(ErrorKind::UnknownField((&*val).clone(), ident.to_owned())))
+                        }
+                    }
+                }
+            }
+            &Value::Class(ref class) => {
+                match class.functions.get(ident) {
+                    Some(func) => Ok(Value::Function(Rc::clone(func)).into()),
+                    None => Err(Error::new(ErrorKind::UnknownField((&*val).clone(), ident.to_owned()))),
+                }
+            }
+            other => Err(Error::new(ErrorKind::TypeMismatch(other.get_type(), other.get_type(), "cannot access members of type 'type1'".to_owned()))),
+        }
+    }
+
     fn ast_type_to_runtime_type(&self, ast_type: &AstType) -> Result<Type, Error> {
         match ast_type {
             &AstType::Boolean => Ok(Type::Boolean),
             &AstType::Integer => Ok(Type::Integer),
             &AstType::Float => Ok(Type::Float),
             &AstType::String => Ok(Type::String),
-            &AstType::Custom(_) => unimplemented!(),
+            &AstType::Class(ref name) => {
+                let val = self.env.get(name)
+                    .ok_or(Error::new(ErrorKind::InvalidClass(name.to_owned(), "no such class found".to_owned())))?;
+                
+                match &*val {
+                    &Value::Class(ref class) => {
+                        Ok(Type::Class(Rc::clone(&class.def)))
+                    },
+                    _ => {
+                        Err(Error::new(ErrorKind::InvalidClass(name.to_owned(), "it is not of type 'class'".to_owned())))
+                    }
+                }
+            }
             &AstType::Void => Ok(Type::Void),
         }
     }
 
-    fn convert_function(&mut self, function: &AstFunction) -> Result<(), Error> {
+    fn ast_function_to_runtime_function(&self, function: &AstFunction) -> Result<Function, Error> {
         let mut params = Vec::new();
 
         for ast_param in &function.params {
@@ -403,15 +500,65 @@ impl Interpreter {
 
         let body = function.body.clone();
 
-        let runtime_func = Function {
+        Ok(Function {
             def: FunctionDef {
                 params: params,
                 ret: Box::new(ret),
             },
             body: body,
+        })
+    }
+
+    fn convert_function(&mut self, function: &AstFunction) -> Result<(), Error> {
+        let runtime_func = self.ast_function_to_runtime_function(function)?;
+
+        self.env.create(function.name.clone(), Value::Function(runtime_func.into()).into())?;
+
+        Ok(())
+    }
+
+    fn convert_class(&mut self, ast_class: &AstClass) -> Result<(), Error> {
+        let temp_class = Class {
+            functions: HashMap::new(),
+            methods: HashMap::new(),
+            def: Rc::new(ClassDef {
+                fields: HashMap::new(),
+            }),
         };
 
-        self.env.create(function.name.clone(), Value::Function(runtime_func).into())?;
+        self.env.create(ast_class.name.clone(), Value::Class(Rc::new(temp_class)).into())?;
+
+        let mut field_map = HashMap::new();
+
+        for field in &ast_class.fields {
+            field_map.insert(field.name.clone(), self.ast_type_to_runtime_type(&field.ty)?);
+        }
+
+        let mut method_map = HashMap::new();
+
+        for ast_method in &ast_class.methods {
+            let runtime_method = Method(self.ast_function_to_runtime_function(&ast_method.0)?);
+            
+            method_map.insert(ast_method.0.name.clone(), Rc::new(runtime_method));
+        }
+
+        let mut function_map = HashMap::new();
+
+        for ast_function in &ast_class.functions {
+            let runtime_function = self.ast_function_to_runtime_function(ast_function)?;
+
+            function_map.insert(ast_function.name.clone(), Rc::new(runtime_function));
+        }
+
+        let class = Class {
+            functions: function_map,
+            methods: method_map,
+            def: Rc::new(ClassDef {
+                fields: field_map,
+            }),
+        };
+
+        self.env.create(ast_class.name.clone(), Value::Class(Rc::new(class)).into())?;
 
         Ok(())
     }

@@ -1,4 +1,5 @@
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -12,7 +13,10 @@ pub enum Value {
     String(String),
     Void,
 
-    Function(Function),
+    Function(Rc<Function>),
+    Object(Object),
+    Class(Rc<Class>),
+    Method(Rc<Method>, ValueRc),
 }
 
 impl Value {
@@ -25,6 +29,9 @@ impl Value {
             &Value::Void => Type::Void,
 
             &Value::Function(ref func) => Type::Function(func.def.clone()),
+            &Value::Object(ref obj) => Type::Object(Rc::clone(&obj.class.def)),
+            &Value::Class(ref class) => Type::Class(Rc::clone(&class.def)),
+            &Value::Method(ref met, _) => Type::Method(met.0.def.clone()),
         }
     }
 }
@@ -40,6 +47,9 @@ pub enum Type {
     Void,
 
     Function(FunctionDef),
+    Object(Rc<ClassDef>),
+    Class(Rc<ClassDef>),
+    Method(FunctionDef),
 }
 
 impl Type {
@@ -81,3 +91,24 @@ impl PartialEq for Param {
         self.name == other.name && self.ty == other.ty
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct Object {
+    pub class: Rc<Class>,
+    pub fields: HashMap<String, ValueRc>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Class {
+    pub functions: HashMap<String, Rc<Function>>,
+    pub methods: HashMap<String, Rc<Method>>,
+    pub def: Rc<ClassDef>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClassDef {
+    pub fields: HashMap<String, Type>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Method(pub Function);

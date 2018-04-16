@@ -15,7 +15,6 @@ pub struct Class {
 pub struct Field {
     pub name: String,
     pub ty: Type,
-    pub default: Option<Literal>,
 }
 
 #[derive(Clone)]
@@ -62,6 +61,10 @@ pub enum Expr {
     While(Box<Expr>, Block),
 
     Call(Box<Expr>, Vec<Arg>),
+
+    Make(Box<Expr>, Vec<MakeArg>),
+
+    Dot(Box<Expr>, String),
     
     Cast(Type, Box<Expr>),
 }
@@ -105,12 +108,18 @@ pub struct Arg {
 }
 
 #[derive(Clone)]
+pub struct MakeArg {
+    pub name: String,
+    pub expr: Expr,
+}
+
+#[derive(Clone)]
 pub enum Type {
     Boolean,
     Integer,
     Float,
     String,
-    Custom(String), // TODO: Replace String with path type
+    Class(String), // TODO: Replace String with path type
     Void,
 }
 
