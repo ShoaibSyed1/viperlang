@@ -6,6 +6,7 @@ pub enum ModuleItem {
 }
 
 pub enum ClassItem {
+    StaticField(Field),
     Field(Field),
     Function(Function),
     Method(Method),

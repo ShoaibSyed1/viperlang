@@ -29,11 +29,13 @@ ModuleItem: ModuleItem = {
 
 Class: Class = {
     "class" <i:Ident> "{" <items:ClassItem*> "}" => {
+        let mut static_fields = Vec::new();
         let mut fields = Vec::new();
         let mut functions = Vec::new();
         let mut methods = Vec::new();
         for item in items {
             match item {
+                ClassItem::StaticField(field) => static_fields.push(field),
                 ClassItem::Field(field) => fields.push(field),
                 ClassItem::Function(function) => functions.push(function),
                 ClassItem::Method(method) => methods.push(method),
@@ -42,6 +44,7 @@ Class: Class = {
 
         Class {
             name: i,
+            static_fields: static_fields,
             fields: fields,
             functions: functions,
             methods: methods,
@@ -50,6 +53,7 @@ Class: Class = {
 };
 
 ClassItem: ClassItem = {
+    "class" <Field> => ClassItem::StaticField(<>),
     <Field> => ClassItem::Field(<>),
     "class" <Function> => ClassItem::Function(<>),
     <Method> => ClassItem::Method(<>),

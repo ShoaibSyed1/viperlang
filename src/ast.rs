@@ -6,6 +6,7 @@ pub struct Module {
 #[derive(Clone)]
 pub struct Class {
     pub name: String,
+    pub static_fields: Vec<Field>,
     pub fields: Vec<Field>,
     pub functions: Vec<Function>,
     pub methods: Vec<Method>,
