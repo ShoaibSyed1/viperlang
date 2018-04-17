@@ -106,7 +106,7 @@ impl PartialEq for Param {
 
 #[derive(Clone, Debug)]
 pub struct Object {
-    pub class: Rc<RwLock<Class>>,
+    pub class: Rc<Class>,
     pub fields: HashMap<String, ValueRef>,
 }
 
@@ -117,9 +117,16 @@ pub struct Class {
     pub def: Rc<ClassDef>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ClassDef {
     pub fields: HashMap<String, Type>,
+    pub name: String, // TODO: Proper path support
+}
+
+impl PartialEq for ClassDef {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 #[derive(Clone, Debug)]

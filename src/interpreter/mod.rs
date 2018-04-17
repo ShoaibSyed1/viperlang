@@ -565,6 +565,7 @@ impl Interpreter {
             methods: HashMap::new(),
             def: Rc::new(ClassDef {
                 fields: HashMap::new(),
+                name: ast_class.name.to_owned(),
             }),
         };
 
@@ -599,6 +600,7 @@ impl Interpreter {
             methods: method_map,
             def: Rc::new(ClassDef {
                 fields: field_map,
+                name: ast_class.name.to_owned(),
             }),
         };
 
