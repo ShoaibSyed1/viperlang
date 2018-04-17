@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Field, Function as AstFunction, Literal, MakeArg, Method as AstMethod, Module, Stmt, Type as AstType, UnOp};
+use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
 
 mod environment;
 mod error;
@@ -9,7 +9,7 @@ mod value;
 
 use self::environment::Environment;
 use self::error::{Error, ErrorKind};
-use self::value::{Class, ClassDef, Function, FunctionDef, Method, Object, Param, Type, Value, ValueRc};
+use self::value::{Class, ClassDef, Function, FunctionDef, Method, Object, Param, Type, Value, ValueRef, ValueRw};
 
 pub struct Interpreter {
     env: Box<Environment>,
@@ -38,7 +38,7 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn eval_block(&mut self, block: &Block) -> Result<ValueRc, Error> {
+    pub fn eval_block(&mut self, block: &Block) -> Result<ValueRef, Error> {
         let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
         self.env = Box::new(env);
 
@@ -61,17 +61,44 @@ impl Interpreter {
                 if let Some(ref ty) = opt_type {
                     let ty = self.ast_type_to_runtime_type(ty)?;
 
-                    if ty != val.get_type() {
-                        return Err(Error::new(ErrorKind::TypeMismatch(ty, val.get_type(), "cannot assign 'type2' to 'type1' variable".into())));
+                    let val_read = val.read().unwrap();
+
+                    if ty != val_read.get_type() {
+                        return Err(Error::new(ErrorKind::TypeMismatch(ty, val_read.get_type(), "cannot assign 'type2' to 'type1' variable".into())));
                     }
                 }
 
                 self.env.create(name.to_owned(), val)
             }
-            &Stmt::Assign(ref name, ref expr) => {
-                let val = self.eval_expr(expr)?;
+            &Stmt::Assign(ref lexpr, ref rexpr) => {
+                let val = self.eval_expr(rexpr)?;
 
-                self.env.assign(name.to_owned(), val)
+                match lexpr {
+                    &Expr::Literal(Literal::Ident(ref path)) => self.env.assign(path.0[0].to_owned(), val)?,
+                    &Expr::Dot(ref dlexpr, ref ident) => {
+                        let dlval = self.eval_expr(dlexpr)?;
+
+                        let lval = self.dot(dlval, ident, true)?;
+
+                        let lval = lval.read().unwrap();
+
+                        // Special case
+                        match &*lval {
+                            &Value::Field(ref val_ref, ref name) => {
+                                match &mut *val_ref.write().unwrap() {
+                                    &mut Value::Object(ref mut obj) => {
+                                        obj.fields.insert(name.clone(), val);
+                                    }
+                                    _ => return Err(Error::new(ErrorKind::InvalidLVal)),
+                                }
+                            }
+                            _ => return Err(Error::new(ErrorKind::InvalidLVal)),
+                        }
+                    }
+                    _ => return Err(Error::new(ErrorKind::InvalidLVal)),
+                }
+
+                Ok(())
             }
             &Stmt::Expr(ref expr) => {
                 self.eval_expr(expr)?;
@@ -96,7 +123,7 @@ impl Interpreter {
                     }
                 };
 
-                match &*val {
+                match &*val.read().unwrap() {
                     &Value::String(ref s) => println!("{}", s),
                     _ => {
                         println!("{:?}", val);
@@ -108,7 +135,7 @@ impl Interpreter {
         }
     }
 
-    fn eval_expr(&mut self, expr: &Expr) -> Result<ValueRc, Error> {
+    fn eval_expr(&mut self, expr: &Expr) -> Result<ValueRef, Error> {
         match expr {
             &Expr::UnOp(ref op, ref e) => {
                 let v = self.eval_expr(e)?;
@@ -140,7 +167,7 @@ impl Interpreter {
 
             &Expr::Dot(ref expr, ref ident) => {
                 let val = self.eval_expr(expr)?;
-                self.dot(val, ident)
+                self.dot(val, ident, false)
             }
 
             &Expr::Cast(ref ast_type, ref expr) => {
@@ -152,9 +179,9 @@ impl Interpreter {
         }
     }
 
-    fn eval_if(&mut self, cond: &Expr, block: &Block, else_block: &Option<Block>) -> Result<ValueRc, Error> {
+    fn eval_if(&mut self, cond: &Expr, block: &Block, else_block: &Option<Block>) -> Result<ValueRef, Error> {
         let cond = self.eval_expr(cond)?;
-        let cond = match &*cond {
+        let cond = match &*cond.read().unwrap() {
             &Value::Boolean(b) => b,
             other => return Err(Error::new(ErrorKind::TypeMismatch(Type::Boolean, other.get_type(), "expected type 'bool' in if condition".to_owned()))),
         };
@@ -165,15 +192,15 @@ impl Interpreter {
             if let Some(ref block) = else_block.as_ref() {
                 self.eval_block(block)
             } else {
-                Ok(Value::Void.into())
+                Ok(ValueRef::new(Value::Void.into()))
             }
         }
     }
 
-    fn eval_while(&mut self, cond: &Expr, block: &Block) -> Result<ValueRc, Error> {
+    fn eval_while(&mut self, cond: &Expr, block: &Block) -> Result<ValueRef, Error> {
         loop {
             let cond = self.eval_expr(cond)?;
-            let cond = match &*cond {
+            let cond = match &*cond.read().unwrap() {
                 &Value::Boolean(b) => b,
                 other => return Err(Error::new(ErrorKind::TypeMismatch(Type::Boolean, other.get_type(), "expected type 'bool' in while condition".to_owned()))),
             };
@@ -185,46 +212,46 @@ impl Interpreter {
             }
         }
 
-        Ok(Value::Void.into())
+        Ok(ValueRef::new(Value::Void.into()))
     }
 
-    fn eval_literal(&self, literal: &Literal) -> Result<ValueRc, Error> {
+    fn eval_literal(&self, literal: &Literal) -> Result<ValueRef, Error> {
         match literal {
-            &Literal::Boolean(val) => Ok(Value::Boolean(val).into()),
-            &Literal::Integer(val) => Ok(Value::Integer(val).into()),
-            &Literal::Float(val) => Ok(Value::Float(val).into()),
-            &Literal::String(ref val) => Ok(Value::String(val.to_owned()).into()),
+            &Literal::Boolean(val) => Ok(ValueRef::new(Value::Boolean(val).into())),
+            &Literal::Integer(val) => Ok(ValueRef::new(Value::Integer(val).into())),
+            &Literal::Float(val) => Ok(ValueRef::new(Value::Float(val).into())),
+            &Literal::String(ref val) => Ok(ValueRef::new(Value::String(val.to_owned()).into())),
             &Literal::Ident(ref item_path) => {
                 // TODO: Proper path resolution
                 self.env.get(&item_path.0[0]).ok_or(Error::new(ErrorKind::UnknownName(item_path.0[0].to_owned())))
             }
-            &Literal::Void => Ok(Value::Void.into()),
+            &Literal::Void => Ok(ValueRef::new(Value::Void.into())),
         }
     }
 
-    fn do_unop(&self, op: &UnOp, val: &Value) -> Result<ValueRc, Error> {
+    fn do_unop(&self, op: &UnOp, val: &ValueRw) -> Result<ValueRef, Error> {
         match op {
             &UnOp::Neg => self.do_neg(val),
             &UnOp::Not => self.do_not(val),
         }
     }
 
-    fn do_neg(&self, val: &Value) -> Result<ValueRc, Error> {
-        match val {
-            &Value::Integer(i) => Ok(Value::Integer(-i).into()),
-            &Value::Float(f) => Ok(Value::Float(-f).into()),
+    fn do_neg(&self, val: &ValueRw) -> Result<ValueRef, Error> {
+        match &*val.read().unwrap() {
+            &Value::Integer(i) => Ok(ValueRef::new(Value::Integer(-i).into())),
+            &Value::Float(f) => Ok(ValueRef::new(Value::Float(-f).into())),
             val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'neg' for this type".to_owned()))),
         }
     }
 
-    fn do_not(&self, val: &Value) -> Result<ValueRc, Error> {
-        match val {
-            &Value::Boolean(b) => Ok(Value::Boolean(!b).into()),
+    fn do_not(&self, val: &ValueRw) -> Result<ValueRef, Error> {
+        match &*val.read().unwrap() {
+            &Value::Boolean(b) => Ok(ValueRef::new(Value::Boolean(!b).into())),
             val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'not' for this type".to_owned()))),
         }
     }
 
-    fn do_binop(&self, l: &Value, op: &BinOp, r: &Value) -> Result<ValueRc, Error> {
+    fn do_binop(&self, l: &ValueRw, op: &BinOp, r: &ValueRw) -> Result<ValueRef, Error> {
         match op {
             &BinOp::Add => self.do_add(l, r),
             &BinOp::Sub => self.do_sub(l, r),
@@ -241,41 +268,41 @@ impl Interpreter {
         }
     }
 
-    fn do_add(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
-            (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 + i2).into()),
-            (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 + f2).into()),
-            (&Value::String(ref s1), &Value::String(ref s2)) => Ok(Value::String(s1.to_owned() + s2).into()),
+    fn do_add(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
+            (&Value::Integer(i1), &Value::Integer(i2)) => Ok(ValueRef::new(Value::Integer(i1 + i2).into())),
+            (&Value::Float(f1), &Value::Float(f2)) => Ok(ValueRef::new(Value::Float(f1 + f2).into())),
+            (&Value::String(ref s1), &Value::String(ref s2)) => Ok(ValueRef::new(Value::String(s1.to_owned() + s2).into())),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'add' for these types".to_owned()))),
         }
     }
 
-    fn do_sub(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_sub(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 - i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 - f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'sub' for these types".to_owned()))),
         }
     }
 
-    fn do_mul(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_mul(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 * i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 * f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'mul' for these types".to_owned()))),
         }
     }
 
-    fn do_div(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_div(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 / i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 / f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'div' for these types".to_owned()))),
         }
     }
 
-    fn do_eq(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_eq(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Boolean(b1), &Value::Boolean(b2)) => Ok(Value::Boolean(b1 == b2).into()),
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 == i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 == f2).into()),
@@ -284,60 +311,62 @@ impl Interpreter {
         }
     }
 
-    fn do_neq(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        self.do_eq(val1, val2).map(|v| if let &Value::Boolean(b) = &*v {
-            ValueRc::new(Value::Boolean(!b))
-        } else { v.into() })
+    fn do_neq(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        self.do_eq(val1, val2).map(|v| if let &Value::Boolean(b) = &*v.read().unwrap() {
+            Value::Boolean(!b).into()
+        } else { v.clone() })
     }
 
-    fn do_gt(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_gt(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 > i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 > f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'gt' for these types".to_owned()))),
         }
     }
 
-    fn do_gteq(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_gteq(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 >= i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 >= f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'gteq' for these types".to_owned()))),
         }
     }
 
-    fn do_lt(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_lt(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 < i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 < f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'lt' for these types".to_owned()))),
         }
     }
 
-    fn do_lteq(&self, val1: &Value, val2: &Value) -> Result<ValueRc, Error> {
-        match (val1, val2) {
+    fn do_lteq(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 <= i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 <= f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'lteq' for these types".to_owned()))),
         }
     }
 
-    fn do_cast(&self, ty: &Type, val: &Value) -> Result<ValueRc, Error> {
+    fn do_cast(&self, ty: &Type, val: &ValueRw) -> Result<ValueRef, Error> {
         use std::str::FromStr;
 
-        if &val.get_type() == ty { return Ok(val.clone().into()); }
+        let val_read = val.read().unwrap();
 
-        match (ty, val) {
+        if &val_read.get_type() == ty { return Ok(val_read.clone().into()); }
+
+        match (ty, &*val_read) {
             (&Type::Float, &Value::Integer(i)) => Ok(Value::Float(i as f64).into()),
             (&Type::Float, &Value::String(ref s)) => Ok(Value::Float(match f64::from_str(s) {
                 Ok(f) => f,
-                Err(_) => return Err(Error::new(ErrorKind::InvalidCast(ty.clone(), val.clone(), "invalid value".to_owned()))),
+                Err(_) => return Err(Error::new(ErrorKind::InvalidCast(ty.clone(), val_read.clone(), "invalid value".to_owned()))),
             }).into()),
 
             (&Type::Integer, &Value::Float(f)) => Ok(Value::Integer(f as i64).into()),
             (&Type::Integer, &Value::String(ref s)) => Ok(Value::Integer(match i64::from_str(s) {
                 Ok(i) => i,
-                Err(_) => return Err(Error::new(ErrorKind::InvalidCast(ty.clone(), val.clone(), "invalid value".to_owned()))),
+                Err(_) => return Err(Error::new(ErrorKind::InvalidCast(ty.clone(), val_read.clone(), "invalid value".to_owned()))),
             }).into()),
 
             (&Type::String, &Value::Integer(i)) => Ok(Value::String(i.to_string()).into()),
@@ -349,15 +378,16 @@ impl Interpreter {
         }
     }
 
-    fn call(&mut self, val: &Value, args: &[Arg]) -> Result<ValueRc, Error> {
-        let err = Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "no implementation of 'call' for this type".to_owned()));
+    fn call(&mut self, val: &ValueRw, args: &[Arg]) -> Result<ValueRef, Error> {
+        let val_read = val.read().unwrap();
+        let err = Error::new(ErrorKind::TypeMismatch(val_read.get_type(), val_read.get_type(), "no implementation of 'call' for this type".to_owned()));
 
         let mut vals = Vec::new();
         for arg in args {
             vals.push(self.eval_expr(&arg.expr)?);
         }
 
-        if vals.len() != (match val {
+        if vals.len() != (match &*val_read {
             &Value::Function(ref func) => func.def.params.len(),
             &Value::Method(ref method, _) => method.0.def.params.len(),
             _ => return Err(err),
@@ -368,10 +398,10 @@ impl Interpreter {
         let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
         self.env = Box::new(env);
 
-        let func = match val {
+        let func = match &*val_read {
             &Value::Function(ref func) => func,
             &Value::Method(ref method, ref obj) => {
-                self.env.create("self".to_owned(), ValueRc::clone(obj))?;
+                self.env.create("self".to_owned(), obj.clone().into())?;
 
                 &method.0
             },
@@ -388,31 +418,35 @@ impl Interpreter {
             Err(err) => return Err(err),
         };
 
-        if &ret.get_type() != &*func.def.ret {
-            return Err(Error::new(ErrorKind::TypeMismatch(ret.get_type(), (&*func.def.ret).clone(), "tried to return 'type1' from function with return type 'type2'".to_owned())));
+        let ret_read = ret.read().unwrap();
+
+        if &ret_read.get_type() != &*func.def.ret {
+            return Err(Error::new(ErrorKind::TypeMismatch(ret_read.get_type(), (&*func.def.ret).clone(), "tried to return 'type1' from function with return type 'type2'".to_owned())));
         }
 
         self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
 
-        Ok(ret)
+        Ok(ret.clone())
     }
 
-    fn make(&mut self, makeable: &Value, args: &[MakeArg]) -> Result<ValueRc, Error> {
-        let class = match makeable {
+    fn make(&mut self, makeable: &ValueRw, args: &[MakeArg]) -> Result<ValueRef, Error> {
+        let makeable_read = makeable.read().unwrap();
+        let class = match &*makeable_read {
             &Value::Class(ref class) => class,
-            _ => return Err(Error::new(ErrorKind::TypeMismatch(makeable.get_type(), makeable.get_type(), "no implementation of 'make' for this type".to_owned()))),
+            _ => return Err(Error::new(ErrorKind::TypeMismatch(makeable_read.get_type(), makeable_read.get_type(), "no implementation of 'make' for this type".to_owned()))),
         };
 
         let mut fields = HashMap::new();
 
         for arg in args {
             let val = self.eval_expr(&arg.expr)?;
+            let val_read = val.read().unwrap();
             match class.def.fields.get(&arg.name) {
                 Some(ty) => {
-                    if &val.get_type() == ty {
-                        fields.insert(arg.name.clone(), val);
+                    if &val_read.get_type() == ty {
+                        fields.insert(arg.name.clone(), val.clone());
                     } else {
-                        return Err(Error::new(ErrorKind::TypeMismatch(val.get_type().clone(), ty.clone(), "class has 'type2' for field, not 'type1'".to_owned())));
+                        return Err(Error::new(ErrorKind::TypeMismatch(val_read.get_type(), ty.clone(), "class has 'type2' for field, not 'type1'".to_owned())));
                     }
                 },
                 None => return Err(Error::new(ErrorKind::UnknownName(format!("class has no field '{}'", arg.name)))),
@@ -431,15 +465,22 @@ impl Interpreter {
         }).into())
     }
 
-    fn dot(&mut self, val: ValueRc, ident: &str) -> Result<ValueRc, Error> {
-        match &*val {
+    fn dot(&mut self, val: ValueRef, ident: &str, ret_field: bool) -> Result<ValueRef, Error> {
+        let val_read = val.read().unwrap();
+        match &*val_read {
             &Value::Object(ref obj) => {
                 match obj.fields.get(ident) {
-                    Some(val) => Ok(ValueRc::clone(val)),
+                    Some(nval) => {
+                        if !ret_field {
+                            Ok(ValueRef::clone(nval))
+                        } else {
+                            Ok(Value::Field(val.clone(), ident.to_owned()).into())
+                        }
+                    }
                     None => {
                         match obj.class.methods.get(ident) {
-                            Some(method) => Ok(Value::Method(Rc::clone(method), ValueRc::clone(&val)).into()),
-                            None => Err(Error::new(ErrorKind::UnknownField((&*val).clone(), ident.to_owned())))
+                            Some(method) => Ok(Value::Method(Rc::clone(method), val.clone()).into()),
+                            None => Err(Error::new(ErrorKind::UnknownField((&*val_read).clone(), ident.to_owned())))
                         }
                     }
                 }
@@ -447,7 +488,7 @@ impl Interpreter {
             &Value::Class(ref class) => {
                 match class.functions.get(ident) {
                     Some(func) => Ok(Value::Function(Rc::clone(func)).into()),
-                    None => Err(Error::new(ErrorKind::UnknownField((&*val).clone(), ident.to_owned()))),
+                    None => Err(Error::new(ErrorKind::UnknownField((&*val_read).clone(), ident.to_owned()))),
                 }
             }
             other => Err(Error::new(ErrorKind::TypeMismatch(other.get_type(), other.get_type(), "cannot access members of type 'type1'".to_owned()))),
@@ -464,9 +505,10 @@ impl Interpreter {
                 let val = self.env.get(name)
                     .ok_or(Error::new(ErrorKind::InvalidClass(name.to_owned(), "no such class found".to_owned())))?;
                 
-                match &*val {
+                let val: &Value = &*val.read().unwrap();
+                match val {
                     &Value::Class(ref class) => {
-                        Ok(Type::Class(Rc::clone(&class.def)))
+                        Ok(Type::Object(Rc::clone(&class.def)))
                     },
                     _ => {
                         Err(Error::new(ErrorKind::InvalidClass(name.to_owned(), "it is not of type 'class'".to_owned())))
@@ -526,7 +568,9 @@ impl Interpreter {
             }),
         };
 
-        self.env.create(ast_class.name.clone(), Value::Class(Rc::new(temp_class)).into())?;
+        let value = ValueRef::new(ValueRw::new(Value::Class(Rc::new(temp_class))));
+
+        self.env.create(ast_class.name.clone(), ValueRef::clone(&value))?;
 
         let mut field_map = HashMap::new();
 
@@ -558,7 +602,7 @@ impl Interpreter {
             }),
         };
 
-        self.env.create(ast_class.name.clone(), Value::Class(Rc::new(class)).into())?;
+        *value.write().unwrap() = Value::Class(Rc::new(class));
 
         Ok(())
     }

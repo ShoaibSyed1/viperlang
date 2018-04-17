@@ -2,6 +2,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::sync::RwLock;
 
 use ast::Expr;
 
@@ -16,7 +17,9 @@ pub enum Value {
     Function(Rc<Function>),
     Object(Object),
     Class(Rc<Class>),
-    Method(Rc<Method>, ValueRc),
+    Method(Rc<Method>, ValueRef),
+
+    Field(ValueRef, String),
 }
 
 impl Value {
@@ -32,11 +35,20 @@ impl Value {
             &Value::Object(ref obj) => Type::Object(Rc::clone(&obj.class.def)),
             &Value::Class(ref class) => Type::Class(Rc::clone(&class.def)),
             &Value::Method(ref met, _) => Type::Method(met.0.def.clone()),
+
+            &Value::Field(ref val_ref, _) => val_ref.read().unwrap().get_type(),
         }
     }
 }
 
-pub type ValueRc = Rc<Value>;
+pub type ValueRef = Rc<RwLock<Value>>;
+pub type ValueRw = RwLock<Value>;
+
+impl Into<ValueRef> for Value {
+    fn into(self) -> ValueRef {
+        ValueRef::new(self.into())
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Type {
@@ -83,7 +95,7 @@ pub struct FunctionDef {
 pub struct Param {
     pub name: String,
     pub ty: Type,
-    pub default: Option<ValueRc>,
+    pub default: Option<ValueRef>,
 }
 
 impl PartialEq for Param {
@@ -94,8 +106,8 @@ impl PartialEq for Param {
 
 #[derive(Clone, Debug)]
 pub struct Object {
-    pub class: Rc<Class>,
-    pub fields: HashMap<String, ValueRc>,
+    pub class: Rc<RwLock<Class>>,
+    pub fields: HashMap<String, ValueRef>,
 }
 
 #[derive(Clone, Debug)]

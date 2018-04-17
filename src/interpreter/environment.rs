@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use interpreter::error::{Error, ErrorKind};
-use interpreter::value::ValueRc;
+use interpreter::value::ValueRef;
 
 pub struct Environment {
     parent: Option<Box<Environment>>,
-    variables: HashMap<String, ValueRc>,
+    variables: HashMap<String, ValueRef>,
 }
 
 impl Environment {
@@ -16,13 +16,13 @@ impl Environment {
         }
     }
 
-    pub fn create(&mut self, name: String, value: ValueRc) -> Result<(), Error> {
+    pub fn create(&mut self, name: String, value: ValueRef) -> Result<(), Error> {
         self.variables.insert(name, value);
 
         Ok(())
     }
 
-    pub fn assign(&mut self, name: String, value: ValueRc) -> Result<(), Error> {
+    pub fn assign(&mut self, name: String, value: ValueRef) -> Result<(), Error> {
         {
             let cur_variable = self.variables.get(&name);
             if cur_variable.is_none() {
@@ -32,6 +32,9 @@ impl Environment {
             }
             
             let cur_variable = cur_variable.ok_or(Error::new(ErrorKind::UnknownName(name.clone())))?;
+
+            let cur_variable = cur_variable.read().unwrap();
+            let value = value.read().unwrap();
             
             if cur_variable.get_type() != value.get_type() {
                 return Err(Error::new(ErrorKind::TypeMismatch(cur_variable.get_type(), value.get_type(), "cannot assign 'type2' to 'type1' variable".into())));
@@ -43,8 +46,8 @@ impl Environment {
         Ok(())
     }
 
-    pub fn get(&self, name: &str) -> Option<ValueRc> {
-        let mut val = self.variables.get(name).map(|v| ValueRc::clone(v));
+    pub fn get(&self, name: &str) -> Option<ValueRef> {
+        let mut val = self.variables.get(name).map(|v| ValueRef::clone(v));
         if val.is_none() {
             if let Some(ref env) = self.parent {
                 val = env.get(name);

@@ -95,7 +95,7 @@ pub Block: Block = <s:Stmt*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| 
 
 Stmt: Stmt = {
     "let" <i:Ident> <t:(":" <Type>)?> "=" <e:Expr> ";" => Stmt::Let(i, t, e),
-    <i:Ident> "=" <e:Expr> ";" => Stmt::Assign(i, e),
+    <a:Expr> "=" <e:Expr> ";" => Stmt::Assign(a, e),
     <e:Expr> ";" => Stmt::Expr(e),
 
     "return" <Expr?> ";" => Stmt::Return(<>.unwrap_or(Expr::Literal(Literal::Void))),

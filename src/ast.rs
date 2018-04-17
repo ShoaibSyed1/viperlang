@@ -41,7 +41,7 @@ pub struct Block(pub Vec<Stmt>, pub Box<Expr>);
 #[derive(Clone)]
 pub enum Stmt {
     Let(String, Option<Type>, Expr),
-    Assign(String, Expr),
+    Assign(Expr, Expr),
     Expr(Expr),
 
     Return(Expr),

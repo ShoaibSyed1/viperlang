@@ -1,4 +1,4 @@
-use interpreter::value::{Value, ValueRc, Type};
+use interpreter::value::{Value, ValueRef, Type};
 
 #[derive(Debug)]
 pub struct Error {
@@ -21,6 +21,8 @@ pub enum ErrorKind {
     InvalidFunction(String),
     InvalidClass(String, String),
     UnknownField(Value, String),
+    AssignmentError(Value),
+    InvalidLVal,
 
-    Return(ValueRc),
+    Return(ValueRef),
 }

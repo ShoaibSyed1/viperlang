@@ -1,10 +1,16 @@
 fn main() {
     let animal = make Animal { name: "Cow" };
-    print! (animal.name);
+    animal.name = "Sheep";
+    animal.get().name = "Moose";
+    print! animal.get_name();
 }
 
 class Animal {
     let name: String;
+
+    fn get(): Animal {
+        self
+    }
 
     fn get_name(): String {
         self.name
