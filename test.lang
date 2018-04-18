@@ -1,17 +1,15 @@
 fn main() {
     let r = Range.new(0, 10);
 
-    while true {
+    print! while true {
         let val = r.next();
 
-        if val == none(int) {
-            break;
-        } else {
+        if val has val {
             print! val;
-        }
+        } else {
+            break val;
+        };
     };
-    
-    print! r.next();
 }
 
 class Range {

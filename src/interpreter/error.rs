@@ -24,6 +24,7 @@ pub enum ErrorKind {
     AssignmentError(Value),
     InvalidLVal,
     CantBreakFunction,
+    InvalidIfHas,
 
     Return(ValueRef),
     Break(ValueRef),

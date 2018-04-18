@@ -158,6 +158,11 @@ impl Interpreter {
             &Expr::Block(ref block) => self.eval_block(block),            
 
             &Expr::If(ref cond, ref block, ref else_block) => self.eval_if(cond, block, else_block),
+            &Expr::IfHas(ref expr, ref ident, ref block, ref else_block) => {
+                let val = self.eval_expr(expr)?;
+
+                self.eval_if_has(&val, ident, block, else_block)
+            }
             &Expr::While(ref cond, ref block) => self.eval_while(cond, block),
 
             &Expr::Call(ref expr, ref args) => {
@@ -208,6 +213,33 @@ impl Interpreter {
                 Ok(ValueRef::new(Value::Void.into()))
             }
         }
+    }
+
+    fn eval_if_has(&mut self, val: &ValueRef, name: &str, block: &Block, else_block: &Option<Block>) -> Result<ValueRef, Error> {
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
+        self.env = Box::new(env);
+
+        match &*val.read().unwrap() {
+            &Value::Option(ref opt, _) => {
+                match opt {
+                    Some(val) => {
+                        self.env.create(name.to_owned(), ValueRef::clone(val));
+
+                        return self.eval_block(block);
+                    }
+                    None => {
+                        if let Some(else_block) = else_block {
+                            return self.eval_block(else_block);
+                        }
+                    }
+                }
+            }
+            _ => return Err(Error::new(ErrorKind::InvalidIfHas)),
+        }
+
+        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+
+        Ok(Value::Void.into())
     }
 
     fn eval_while(&mut self, cond: &Expr, block: &Block) -> Result<ValueRef, Error> {

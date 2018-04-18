@@ -60,6 +60,7 @@ pub enum Expr {
     Block(Block),
 
     If(Box<Expr>, Block, Option<Block>),
+    IfHas(Box<Expr>, String, Block, Option<Block>),
     While(Box<Expr>, Block),
 
     Call(Box<Expr>, Vec<Arg>),

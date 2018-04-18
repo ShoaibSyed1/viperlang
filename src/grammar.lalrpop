@@ -174,14 +174,18 @@ ExprPrimary: Expr = {
 
 FlowExpr: Expr = {
     <IfExpr> => <>,
+    <IfHasExpr> => <>,
     <WhileExpr> => <>,
 };
 
 IfExpr: Expr = "if" <c:Expr> "{" <b:Block> "}" <el:Else?> => Expr::If(Box::new(c), b, el);
 
+IfHasExpr: Expr = "if" <e:Expr> "has" <i:Ident> "{" <b:Block> "}" <el:Else?> => Expr::IfHas(Box::new(e), i, b, el);
+
 Else: Block = {
     "else" "{" <Block> "}" => <>,
-    "else" "if" <c:Expr> "{" <b:Block> "}" <e:Else?> => Block(Vec::new(), Box::new(Expr::If(Box::new(c), b, e))),
+    "else" <IfExpr> => Block(Vec::new(), Box::new(<>)),
+    "else" <IfHasExpr> => Block(Vec::new(), Box::new(<>)),
 };
 
 WhileExpr: Expr = "while" <c:Expr> "{" <b:Block> "}" => Expr::While(Box::new(c), b);
