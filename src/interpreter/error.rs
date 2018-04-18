@@ -23,6 +23,8 @@ pub enum ErrorKind {
     UnknownField(Value, String),
     AssignmentError(Value),
     InvalidLVal,
+    CantBreakFunction,
 
     Return(ValueRef),
+    Break(ValueRef),
 }

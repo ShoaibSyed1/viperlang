@@ -99,10 +99,17 @@ pub Block: Block = <s:Stmt*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| 
 
 Stmt: Stmt = {
     "let" <i:Ident> <t:(":" <Type>)?> "=" <e:Expr> ";" => Stmt::Let(i, t, e),
+    
     <a:Expr> "=" <e:Expr> ";" => Stmt::Assign(a, e),
+    <a:Expr> "+=" <e:Expr> ";" => Stmt::Assign(a.clone(), Expr::BinOp(Box::new(a), BinOp::Add, Box::new(e))),
+    <a:Expr> "-=" <e:Expr> ";" => Stmt::Assign(a.clone(), Expr::BinOp(Box::new(a), BinOp::Sub, Box::new(e))),
+    <a:Expr> "*=" <e:Expr> ";" => Stmt::Assign(a.clone(), Expr::BinOp(Box::new(a), BinOp::Mul, Box::new(e))),
+    <a:Expr> "/=" <e:Expr> ";" => Stmt::Assign(a.clone(), Expr::BinOp(Box::new(a), BinOp::Div, Box::new(e))),
+
     <e:Expr> ";" => Stmt::Expr(e),
 
     "return" <Expr?> ";" => Stmt::Return(<>.unwrap_or(Expr::Literal(Literal::Void))),
+    "break" <Expr?> ";" => Stmt::Break(<>.unwrap_or(Expr::Literal(Literal::Void))),
 
     "print" "!" <e:Expr> ";" => Stmt::Print(e),
 };
@@ -128,10 +135,18 @@ ExprEq: Expr = {
 };
 
 ExprCmp: Expr = {
-    <l:ExprCmp> ">" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Gt, Box::new(r)),
-    <l:ExprCmp> ">=" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Gteq, Box::new(r)),
-    <l:ExprCmp> "<" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Lt, Box::new(r)),
-    <l:ExprCmp> "<=" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Lteq, Box::new(r)),
+    <l:ExprCmp> ">" <r:ExprBool> => Expr::BinOp(Box::new(l), BinOp::Gt, Box::new(r)),
+    <l:ExprCmp> ">=" <r:ExprBool> => Expr::BinOp(Box::new(l), BinOp::Gteq, Box::new(r)),
+    <l:ExprCmp> "<" <r:ExprBool> => Expr::BinOp(Box::new(l), BinOp::Lt, Box::new(r)),
+    <l:ExprCmp> "<=" <r:ExprBool> => Expr::BinOp(Box::new(l), BinOp::Lteq, Box::new(r)),
+
+    <ExprBool> => <>,
+};
+
+ExprBool: Expr = {
+    <l: ExprBool> "||" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Or, Box::new(r)),
+    <l: ExprBool> "&&" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::And, Box::new(r)),
+
     <ExprUnary> => <>,
 };
 
@@ -154,6 +169,7 @@ ExprPrimary: Expr = {
     <Literal> => Expr::Literal(<>),
     <FlowExpr> => <>,
     "make" <e:ExprPrimary> "{" <a:MakeArgs> "}" => Expr::Make(Box::new(e), a),
+    "some" "(" <e:Expr> ")" => Expr::OptionSome(Box::new(e)),
 };
 
 FlowExpr: Expr = {
@@ -178,6 +194,7 @@ Literal: Literal = {
     <Integer> => Literal::Integer(<>),
     <String> => Literal::String(<>),
     <ItemPath> => Literal::Ident(<>),
+    "none" "(" <Type> ")" => Literal::None(<>),
 };
 
 Args: Vec<Arg> = <args:(<Arg> ",")*> <a1:Arg?> => {
@@ -207,6 +224,7 @@ Type: Type = {
     "String" => Type::String,
     <Ident> => Type::Class(<>),
     "void" => Type::Void,
+    "option" <Type> => Type::Option(Box::new(<>)),
 };
 
 ItemPath: ItemPath = <i1:Ident> <is:("::" <Ident>)*> => {

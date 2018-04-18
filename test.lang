@@ -1,22 +1,55 @@
 fn main() {
-    let animal = make Animal { name: "Cow" };
-    print! Animal.get_test();
+    let r = Range.new(0, 10);
+
+    while true {
+        let val = r.next();
+
+        if val == none(int) {
+            break;
+        } else {
+            print! val;
+        }
+    };
+    
+    print! r.next();
 }
 
-class Animal {
-    class let test: int;
+class Range {
+    let start: int;
+    let end: int;
+    let inc: int;
 
-    class fn get_test(): int {
-        32
+    let cur: int;
+
+    class fn new(start: int, end: int): Range {
+        make Range {
+            start: start,
+            end: end,
+            inc: 1,
+
+            cur: start,
+        }
     }
 
-    let name: String;
+    class fn new_inc(start: int, end: int, inc: int): Range {
+        make Range {
+            start: start,
+            end: end,
+            inc: inc,
 
-    fn get(): Animal {
-        self
+            cur: start,
+        }
     }
 
-    fn get_name(): String {
-        self.name
+    fn next(): option int {
+        let ret = self.cur;
+
+        if self.cur >= self.end {
+            none(int)
+        } else {
+            self.cur += 1;
+
+            some(ret)
+        }
     }
 }

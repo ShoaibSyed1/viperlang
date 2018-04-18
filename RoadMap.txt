@@ -1,10 +1,28 @@
+- Option<T> type *
+- Lists
+- Arrays
+- Built-ins ( print!, println!, readln! )
+- Core Library ( Ranges, Iterators )
+- Standard Library ( String class, char iterator )
+
 - Control Flow Expressions (If+, Else If+, While*) *
 - Patterns
 - Types as values
 - Functions (Functions+, Named Arguments*) *
-- Classes
-- Methods
-- For Loops (Iterators)
+- Classes+
+- Methods+
+- Interfaces
+- For Loops (For+, Iterators*) *
 - Proper Modules
 - C Modules [aka call c_module::func() passing Vec<Value> to C module]
 - C Bindings [aka converting int to c_int32 to call (load sdl.dll)(sdl_init(i32))]
+
+- Generics (Yeah, Right)
+
+PRIORITY
+- Copy Types
+- Lists
+- print!, println!, readln!
+- String processing
+- Option type
+- Loop breaking

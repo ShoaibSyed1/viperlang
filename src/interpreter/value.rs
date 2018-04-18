@@ -19,6 +19,8 @@ pub enum Value {
     Class(Rc<Class>),
     Method(Rc<Method>, ValueRef),
 
+    Option(Option<ValueRef>, Type),
+
     Field(ValueRef, String),
 }
 
@@ -35,6 +37,8 @@ impl Value {
             &Value::Object(ref obj) => Type::Object(Rc::clone(&obj.class.def)),
             &Value::Class(ref class) => Type::Class(Rc::clone(&class.def)),
             &Value::Method(ref met, _) => Type::Method(met.0.def.clone()),
+
+            &Value::Option(_, ref ty) => Type::Option(Box::new(ty.clone())),
 
             &Value::Field(ref val_ref, _) => val_ref.read().unwrap().get_type(),
         }
@@ -62,6 +66,8 @@ pub enum Type {
     Object(Rc<ClassDef>),
     Class(Rc<ClassDef>),
     Method(FunctionDef),
+
+    Option(Box<Type>),
 }
 
 impl Type {

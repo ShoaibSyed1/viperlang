@@ -23,12 +23,12 @@ impl Interpreter {
     }
 
     pub fn eval_module(&mut self, module: &Module) -> Result<(), Error> {
-        for function in &module.functions {
-            self.convert_function(function)?;
-        }
-
         for class in &module.classes {
             self.convert_class(class)?;
+        }
+
+        for function in &module.functions {
+            self.convert_function(function)?;
         }
 
         if let Some(value) = self.env.get("main") {
@@ -111,6 +111,11 @@ impl Interpreter {
 
                 Err(Error::new(ErrorKind::Return(val)))
             }
+            &Stmt::Break(ref expr) => {
+                let val = self.eval_expr(expr)?;
+
+                Err(Error::new(ErrorKind::Break(val)))
+            }
 
             &Stmt::Print(ref expr) => {
                 let val = self.eval_expr(expr)?;
@@ -176,6 +181,14 @@ impl Interpreter {
 
                 self.do_cast(&ty, &val)
             }
+
+            &Expr::OptionSome(ref expr) => {
+                let val = self.eval_expr(expr)?;
+
+                let ty = val.read().unwrap().get_type();
+
+                Ok(Value::Option(Some(val), ty).into())
+            }
         }
     }
 
@@ -198,6 +211,8 @@ impl Interpreter {
     }
 
     fn eval_while(&mut self, cond: &Expr, block: &Block) -> Result<ValueRef, Error> {
+        let mut ret = ValueRef::new(Value::Void.into());
+
         loop {
             let cond = self.eval_expr(cond)?;
             let cond = match &*cond.read().unwrap() {
@@ -206,13 +221,17 @@ impl Interpreter {
             };
 
             if cond {
-                self.eval_block(block)?;
+                match self.eval_block(block) {
+                    Ok(val) => ret = val,
+                    Err(Error { kind: ErrorKind::Break(val) }) => return Ok(val),
+                    Err(err) => return Err(err),
+                }
             } else {
                 break;
             }
         }
 
-        Ok(ValueRef::new(Value::Void.into()))
+        Ok(ret)
     }
 
     fn eval_literal(&self, literal: &Literal) -> Result<ValueRef, Error> {
@@ -226,6 +245,7 @@ impl Interpreter {
                 self.env.get(&item_path.0[0]).ok_or(Error::new(ErrorKind::UnknownName(item_path.0[0].to_owned())))
             }
             &Literal::Void => Ok(ValueRef::new(Value::Void.into())),
+            &Literal::None(ref ty) => Ok(Value::Option(None, self.ast_type_to_runtime_type(ty)?).into()),
         }
     }
 
@@ -265,6 +285,9 @@ impl Interpreter {
             &BinOp::Gteq => self.do_gteq(l, r),
             &BinOp::Lt => self.do_lt(l, r),
             &BinOp::Lteq => self.do_lteq(l, r),
+
+            &BinOp::Or => self.do_or(l, r),
+            &BinOp::And => self.do_and(l, r),
         }
     }
 
@@ -307,6 +330,16 @@ impl Interpreter {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 == i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 == f2).into()),
             (&Value::String(ref s1), &Value::String(ref s2)) => Ok(Value::Boolean(s1 == s2).into()),
+            (&Value::Option(ref val1, ref ty1), &Value::Option(ref val2, ref ty2)) => {
+                let ty_comp = ValueRef::new(Value::Boolean(ty1 == ty2).into());
+                let val_comp = if let (Some(val1), Some(val2)) = (val1, val2) {
+                    self.do_eq(&val1, &val2)?
+                } else {
+                    ValueRef::new(Value::Boolean(val1.is_none() && val2.is_none()).into())
+                };
+
+                self.do_and(&ty_comp, &val_comp)
+            }
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'eq' for these types".to_owned()))),
         }
     }
@@ -346,6 +379,20 @@ impl Interpreter {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Boolean(i1 <= i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Boolean(f1 <= f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'lteq' for these types".to_owned()))),
+        }
+    }
+
+    fn do_or(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
+            (&Value::Boolean(b1), &Value::Boolean(b2)) => Ok(Value::Boolean(b1 || b2).into()),
+            (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'or' for these types".to_owned()))),
+        }
+    }
+
+    fn do_and(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
+            (&Value::Boolean(b1), &Value::Boolean(b2)) => Ok(Value::Boolean(b1 && b2).into()),
+            (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'and' for these types".to_owned()))),
         }
     }
 
@@ -415,6 +462,7 @@ impl Interpreter {
         let ret = match self.eval_expr(&func.body) {
             Ok(val) => val,
             Err(Error { kind: ErrorKind::Return(val) }) => val,
+            Err(Error { kind: ErrorKind::Break(_) }) => return Err(Error::new(ErrorKind::CantBreakFunction)),
             Err(err) => return Err(err),
         };
 
@@ -516,6 +564,7 @@ impl Interpreter {
                 }
             }
             &AstType::Void => Ok(Type::Void),
+            &AstType::Option(ref aty) => Ok(Type::Option(Box::new(self.ast_type_to_runtime_type(aty)?))),
         }
     }
 

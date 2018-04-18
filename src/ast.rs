@@ -46,6 +46,7 @@ pub enum Stmt {
     Expr(Expr),
 
     Return(Expr),
+    Break(Expr),
 
     Print(Expr),
 }
@@ -68,6 +69,8 @@ pub enum Expr {
     Dot(Box<Expr>, String),
     
     Cast(Type, Box<Expr>),
+
+    OptionSome(Box<Expr>),
 }
 
 #[derive(Clone)]
@@ -78,6 +81,7 @@ pub enum Literal {
     String(String),
     Ident(ItemPath),
     Void,
+    None(Type),
 }
 
 #[derive(Clone)]
@@ -100,6 +104,9 @@ pub enum BinOp {
     Gteq,
     Lt,
     Lteq,
+
+    Or,
+    And,
 }
 
 #[derive(Clone)]
@@ -122,6 +129,7 @@ pub enum Type {
     String,
     Class(String), // TODO: Replace String with path type
     Void,
+    Option(Box<Type>),
 }
 
 #[derive(Clone)]
