@@ -47,8 +47,6 @@ pub enum Stmt {
 
     Return(Expr),
     Break(Expr),
-
-    Print(Expr),
 }
 
 #[derive(Clone)]
@@ -62,6 +60,7 @@ pub enum Expr {
     If(Box<Expr>, Block, Option<Block>),
     IfHas(Box<Expr>, String, Block, Option<Block>),
     While(Box<Expr>, Block),
+    For(String, Box<Expr>, Block),
 
     Call(Box<Expr>, Vec<Arg>),
 
@@ -72,6 +71,8 @@ pub enum Expr {
     Cast(Type, Box<Expr>),
 
     OptionSome(Box<Expr>),
+
+    Macro(String, Vec<Arg>),
 }
 
 #[derive(Clone)]

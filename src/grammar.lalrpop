@@ -110,8 +110,6 @@ Stmt: Stmt = {
 
     "return" <Expr?> ";" => Stmt::Return(<>.unwrap_or(Expr::Literal(Literal::Void))),
     "break" <Expr?> ";" => Stmt::Break(<>.unwrap_or(Expr::Literal(Literal::Void))),
-
-    "print" "!" <e:Expr> ";" => Stmt::Print(e),
 };
 
 Expr: Expr = <ExprAdd> => <>;
@@ -170,12 +168,14 @@ ExprPrimary: Expr = {
     <FlowExpr> => <>,
     "make" <e:ExprPrimary> "{" <a:MakeArgs> "}" => Expr::Make(Box::new(e), a),
     "some" "(" <e:Expr> ")" => Expr::OptionSome(Box::new(e)),
+    <i:Ident> "!" "(" <a:Args> ")" => Expr::Macro(i, a),
 };
 
 FlowExpr: Expr = {
     <IfExpr> => <>,
     <IfHasExpr> => <>,
     <WhileExpr> => <>,
+    <ForExpr> => <>,
 };
 
 IfExpr: Expr = "if" <c:Expr> "{" <b:Block> "}" <el:Else?> => Expr::If(Box::new(c), b, el);
@@ -189,6 +189,8 @@ Else: Block = {
 };
 
 WhileExpr: Expr = "while" <c:Expr> "{" <b:Block> "}" => Expr::While(Box::new(c), b);
+
+ForExpr: Expr = "for" <i:Ident> "in" <e:Expr> "{" <b:Block> "}" => Expr::For(i, Box::new(e), b);
 
 Literal: Literal = {
     "void" => Literal::Void,

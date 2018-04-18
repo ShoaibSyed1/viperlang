@@ -116,27 +116,6 @@ impl Interpreter {
 
                 Err(Error::new(ErrorKind::Break(val)))
             }
-
-            &Stmt::Print(ref expr) => {
-                let val = self.eval_expr(expr)?;
-
-                let val = match self.do_cast(&Type::String, &val) {
-                    Ok(val) => val,
-                    Err(_) => {
-                        println!("{:?}", val);
-                        return Ok(());
-                    }
-                };
-
-                match &*val.read().unwrap() {
-                    &Value::String(ref s) => println!("{}", s),
-                    _ => {
-                        println!("{:?}", val);
-                    }
-                }
-
-                Ok(())
-            }
         }
     }
 
@@ -164,6 +143,11 @@ impl Interpreter {
                 self.eval_if_has(&val, ident, block, else_block)
             }
             &Expr::While(ref cond, ref block) => self.eval_while(cond, block),
+            &Expr::For(ref ident, ref expr, ref block) => {
+                let val = self.eval_expr(expr)?;
+
+                self.eval_for(ident, &val, block)
+            }
 
             &Expr::Call(ref expr, ref args) => {
                 let callable = self.eval_expr(expr)?;
@@ -194,6 +178,15 @@ impl Interpreter {
 
                 Ok(Value::Option(Some(val), ty).into())
             }
+
+            &Expr::Macro(ref ident, ref args) => {
+                match ident as &str {
+                    "print" => self.macro_print(args),
+                    "println" => self.macro_println(args),
+                    "readln" => self.macro_readln(args),
+                    _ => Err(Error::new(ErrorKind::InvalidMacro)),
+                }
+            }
         }
     }
 
@@ -223,7 +216,7 @@ impl Interpreter {
             &Value::Option(ref opt, _) => {
                 match opt {
                     Some(val) => {
-                        self.env.create(name.to_owned(), ValueRef::clone(val));
+                        self.env.create(name.to_owned(), ValueRef::clone(val))?;
 
                         return self.eval_block(block);
                     }
@@ -262,6 +255,46 @@ impl Interpreter {
                 break;
             }
         }
+
+        Ok(ret)
+    }
+
+    fn eval_for(&mut self, name: &str, val: &ValueRef, block: &Block) -> Result<ValueRef, Error> {
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
+        self.env = Box::new(env);
+
+        let method = match &*val.read().unwrap() {
+            &Value::Object(ref obj) => {
+                Rc::clone(obj.class.methods.get("next").ok_or(Error::new(ErrorKind::InvalidFor))?)
+            }
+            _ => return Err(Error::new(ErrorKind::InvalidFor)),
+        };
+
+        let method = ValueRef::new(Value::Method(method, ValueRef::clone(val)).into());
+
+        let mut ret = ValueRef::new(Value::Void.into());
+
+        loop {
+            let val = self.call(&method, &[])?;
+            match &*val.read().unwrap() {
+                &Value::Option(ref opt, _) => match opt {
+                    Some(val) => self.env.create(name.to_owned(), ValueRef::clone(val))?,
+                    _ => break,
+                },
+                _ => return Err(Error::new(ErrorKind::InvalidFor)),
+            }
+
+            match self.eval_block(block) {
+                Ok(val) => ret = val,
+                Err(Error { kind: ErrorKind::Break(val) }) => {
+                    ret = val;
+                    break;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
 
         Ok(ret)
     }
@@ -688,5 +721,68 @@ impl Interpreter {
         *value.write().unwrap() = Value::Class(Rc::new(class));
 
         Ok(())
+    }
+
+    fn macro_print(&mut self, args: &[Arg]) -> Result<ValueRef, Error> {
+        use std::io::{self, Write};
+
+        let mut vals = Vec::new();
+        for arg in args {
+            vals.push(self.eval_expr(&arg.expr)?);
+        }
+
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+
+        for val in vals {
+            match self.do_cast(&Type::String, &val) {
+                Ok(val) => {
+                    match &*val.read().unwrap() {
+                        &Value::String(ref s) => {
+                            write!(handle, "{}", s);
+                        }
+                        _ => {
+                            write!(handle, "{:?}", val);
+                        }
+                    }
+                }
+                Err(_) => {
+                    write!(handle, "{:?}", val);
+                }
+            }
+
+            write!(handle, " ");
+        }
+
+        Ok(Value::Void.into())
+    }
+
+    fn macro_println(&mut self, args: &[Arg]) -> Result<ValueRef, Error> {
+        let mut args = Vec::from(args);
+
+        args.push(Arg {
+            name: None,
+            expr: Expr::Literal(Literal::String("\n".to_owned())),
+        });
+
+        self.macro_print(&args)
+    }
+
+    fn macro_readln(&mut self, args: &[Arg]) -> Result<ValueRef, Error> {
+        use std::io::{self, BufRead};
+
+        let mut vals = Vec::new();
+        for arg in args {
+            vals.push(self.eval_expr(&arg.expr)?);
+        }
+
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+
+        let mut string = String::new();
+
+        handle.read_line(&mut string).unwrap();
+
+        Ok(Value::String(string).into())
     }
 }
