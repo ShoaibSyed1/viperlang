@@ -27,6 +27,7 @@ pub enum ErrorKind {
     InvalidIfHas,
     InvalidFor,
     InvalidMacro,
+    InvalidList,
 
     Return(ValueRef),
     Break(ValueRef),

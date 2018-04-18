@@ -20,6 +20,7 @@ pub enum Value {
     Method(Rc<Method>, ValueRef),
 
     Option(Option<ValueRef>, Type),
+    List(Vec<ValueRef>, Type),
 
     Field(ValueRef, String),
 }
@@ -39,6 +40,7 @@ impl Value {
             &Value::Method(ref met, _) => Type::Method(met.0.def.clone()),
 
             &Value::Option(_, ref ty) => Type::Option(Box::new(ty.clone())),
+            &Value::List(_, ref ty) => Type::List(Box::new(ty.clone())),
 
             &Value::Field(ref val_ref, _) => val_ref.read().unwrap().get_type(),
         }
@@ -68,6 +70,7 @@ pub enum Type {
     Method(FunctionDef),
 
     Option(Box<Type>),
+    List(Box<Type>),
 }
 
 impl Type {

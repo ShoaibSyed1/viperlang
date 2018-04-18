@@ -65,6 +65,7 @@ pub enum Expr {
     Call(Box<Expr>, Vec<Arg>),
 
     Make(Box<Expr>, Vec<MakeArg>),
+    MakeList(Type, ListInit),
 
     Dot(Box<Expr>, String),
     
@@ -109,6 +110,12 @@ pub enum BinOp {
 
     Or,
     And,
+}
+
+#[derive(Clone)]
+pub enum ListInit {
+    Items(Vec<Expr>),
+    Duplicate(Box<Expr>, u32),
 }
 
 #[derive(Clone)]

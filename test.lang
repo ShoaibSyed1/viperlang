@@ -1,3 +1,4 @@
 fn main() {
-    println!(readln!());
+    let list = make int[1, 2, 3];
+    print!(list);
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
+use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, ListInit, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
 
 mod environment;
 mod error;
@@ -157,6 +157,32 @@ impl Interpreter {
             &Expr::Make(ref expr, ref args) => {
                 let makeable = self.eval_expr(expr)?;
                 self.make(&makeable, args)
+            }
+            &Expr::MakeList(ref ty, ref list_init) => {
+                let ty = self.ast_type_to_runtime_type(ty)?;
+
+                let mut values = Vec::new();
+
+                match list_init {
+                    &ListInit::Items(ref items) => {
+                        for item in items {
+                            let val = self.eval_expr(item)?;
+
+                            if &val.read().unwrap().get_type() == &ty {
+                                values.push(val);
+                            } else {
+                                return Err(Error::new(ErrorKind::InvalidList));
+                            }
+                        }
+                    }
+                    &ListInit::Duplicate(ref expr, amount) => {
+                        for _ in 0..amount {
+                            values.push(self.eval_expr(expr)?);
+                        }
+                    }
+                }
+
+                Ok(Value::List(values, ty).into())
             }
 
             &Expr::Dot(ref expr, ref ident) => {

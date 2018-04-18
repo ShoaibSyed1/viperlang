@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, Literal, MakeArg, Method, Module, Param, Stmt, Type, UnOp};
+use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, ListInit, Literal, MakeArg, Method, Module, Param, Stmt, Type, UnOp};
 use grammar_util::{ModuleItem, ClassItem};
 
 grammar;
@@ -167,6 +167,7 @@ ExprPrimary: Expr = {
     <Literal> => Expr::Literal(<>),
     <FlowExpr> => <>,
     "make" <e:ExprPrimary> "{" <a:MakeArgs> "}" => Expr::Make(Box::new(e), a),
+    "make" <t:Type> "[" <li:ListInit> "]" => Expr::MakeList(t, li),
     "some" "(" <e:Expr> ")" => Expr::OptionSome(Box::new(e)),
     <i:Ident> "!" "(" <a:Args> ")" => Expr::Macro(i, a),
 };
@@ -201,6 +202,17 @@ Literal: Literal = {
     <String> => Literal::String(<>),
     <ItemPath> => Literal::Ident(<>),
     "none" "(" <Type> ")" => Literal::None(<>),
+};
+
+ListInit: ListInit = {
+    <es:(<Expr> ",")*> <e:Expr?> => {
+        let mut es = es;
+        if let Some(e) = e {
+            es.push(e);
+        }
+        ListInit::Items(es)
+    },
+    <e:Expr> ";" <i:Integer> => ListInit::Duplicate(Box::new(e), i as _),
 };
 
 Args: Vec<Arg> = <args:(<Arg> ",")*> <a1:Arg?> => {
