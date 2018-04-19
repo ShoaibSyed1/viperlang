@@ -1,8 +1,17 @@
-- Function existence checking
+- MODULO OPERATOR
+- Adding lists
+- Comments
+- List Index L-Values
+- Better list syntax (more rust-like)
+  -- And dynamic start length
+- String conversion
+
+- Iterators
+- Function existence checking +
 - Option<T> type *
-- Lists
-- Arrays
-- Built-ins ( print!, println!, readln! )
+- Lists *
+- Arrays *
+- Built-ins ( print!, println!, readln! ) +
 - Core Library ( Ranges, Iterators )
 - Standard Library ( String class, char iterator )
 
@@ -19,11 +28,3 @@
 - C Bindings [aka converting int to c_int32 to call (load sdl.dll)(sdl_init(i32))]
 
 - Generics (Yeah, Right)
-
-PRIORITY
-- Copy Types
-- Lists
-- print!, println!, readln!
-- String processing
-- Option type
-- Loop breaking
