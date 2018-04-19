@@ -5,11 +5,12 @@ use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, L
 
 mod environment;
 mod error;
+mod e_list;
 mod value;
 
 use self::environment::Environment;
 use self::error::{Error, ErrorKind};
-use self::value::{Class, ClassDef, Function, FunctionDef, Method, Object, Param, Type, Value, ValueRef, ValueRw};
+use self::value::{Class, ClassDef, Function, FunctionDef, List, Method, Object, Param, Type, Value, ValueRef, ValueRw};
 
 pub struct Interpreter {
     env: Box<Environment>,
@@ -182,7 +183,7 @@ impl Interpreter {
                     }
                 }
 
-                Ok(Value::List(values, ty).into())
+                Ok(Value::List(List(values, ty)).into())
             }
 
             &Expr::Dot(ref expr, ref ident) => {
@@ -210,8 +211,16 @@ impl Interpreter {
                     "print" => self.macro_print(args),
                     "println" => self.macro_println(args),
                     "readln" => self.macro_readln(args),
+                    "len" => self.macro_len(args),
                     _ => Err(Error::new(ErrorKind::InvalidMacro)),
                 }
+            }
+
+            &Expr::Index(ref expr, ref index) => {
+                let val = self.eval_expr(expr)?;
+                let index = self.eval_expr(index)?;
+
+                self.index(&val, &index, false)
             }
         }
     }
@@ -289,14 +298,7 @@ impl Interpreter {
         let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
         self.env = Box::new(env);
 
-        let method = match &*val.read().unwrap() {
-            &Value::Object(ref obj) => {
-                Rc::clone(obj.class.methods.get("next").ok_or(Error::new(ErrorKind::InvalidFor))?)
-            }
-            _ => return Err(Error::new(ErrorKind::InvalidFor)),
-        };
-
-        let method = ValueRef::new(Value::Method(method, ValueRef::clone(val)).into());
+        let method = self.get_method(val, "next").ok_or(Error::new(ErrorKind::InvalidFor))?;        
 
         let mut ret = ValueRef::new(Value::Void.into());
 
@@ -307,7 +309,7 @@ impl Interpreter {
                     Some(val) => self.env.create(name.to_owned(), ValueRef::clone(val))?,
                     _ => break,
                 },
-                _ => return Err(Error::new(ErrorKind::InvalidFor)),
+                _ => return Err(Error::new(ErrorKind::InvalidIfHas)),
             }
 
             match self.eval_block(block) {
@@ -525,6 +527,11 @@ impl Interpreter {
             vals.push(self.eval_expr(&arg.expr)?);
         }
 
+        match &*val_read {
+            &Value::ExternMethod(ref func, ref val) => return func(val, &vals),
+            _ => {},
+        }
+
         if vals.len() != (match &*val_read {
             &Value::Function(ref func) => func.def.params.len(),
             &Value::Method(ref method, _) => method.0.def.params.len(),
@@ -605,7 +612,7 @@ impl Interpreter {
     }
 
     fn dot(&mut self, val: ValueRef, ident: &str, ret_field: bool) -> Result<ValueRef, Error> {
-        let val_read = val.read().unwrap();
+        let mut val_read = val.read().unwrap();
         match &*val_read {
             &Value::Object(ref obj) => {
                 match obj.fields.get(ident) {
@@ -630,7 +637,21 @@ impl Interpreter {
                     None => Err(Error::new(ErrorKind::UnknownField((&*val_read).clone(), ident.to_owned()))),
                 }
             }
+            &Value::List(_) => self::e_list::get(ident, ValueRef::clone(&val))
+                .ok_or(Error::new(ErrorKind::UnknownField((&*val_read).clone(), ident.to_owned()))),
             other => Err(Error::new(ErrorKind::TypeMismatch(other.get_type(), other.get_type(), "cannot access members of type 'type1'".to_owned()))),
+        }
+    }
+
+    fn index(&mut self, val: &ValueRef, index: &ValueRef, ret_index: bool) -> Result<ValueRef, Error> {
+        let index = match &*index.read().unwrap() {
+            &Value::Integer(val) => val as usize,
+            _ => return Err(Error::new(ErrorKind::InvalidIndex)),
+        };
+
+        match &*val.read().unwrap() {
+            &Value::List(List(ref vec, _)) => vec.get(index as usize).map(|v| ValueRef::clone(v)).ok_or(Error::new(ErrorKind::IndexOutOfRange)),
+            val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "type does not implement 'index'".to_owned()))),
         }
     }
 
@@ -656,6 +677,7 @@ impl Interpreter {
             }
             &AstType::Void => Ok(Type::Void),
             &AstType::Option(ref aty) => Ok(Type::Option(Box::new(self.ast_type_to_runtime_type(aty)?))),
+            &AstType::List(ref aty) => Ok(Type::List(Box::new(self.ast_type_to_runtime_type(aty)?))),
         }
     }
 
@@ -749,6 +771,16 @@ impl Interpreter {
         Ok(())
     }
 
+    fn get_method(&self, val: &ValueRef, name: &str) -> Option<ValueRef> {
+        match &*val.read().unwrap() {
+            &Value::Object(ref obj) => {
+                obj.class.methods.get(name).map(|m| ValueRef::new(Value::Method(Rc::clone(m), ValueRef::clone(val)).into()))
+            }
+            &Value::List(_) => self::e_list::get(name, ValueRef::clone(val)),
+            _ => None,
+        }
+    }
+
     fn macro_print(&mut self, args: &[Arg]) -> Result<ValueRef, Error> {
         use std::io::{self, Write};
 
@@ -759,6 +791,9 @@ impl Interpreter {
 
         let stdout = io::stdout();
         let mut handle = stdout.lock();
+
+        let mut counter = 0;
+        let vals_len = vals.len();
 
         for val in vals {
             match self.do_cast(&Type::String, &val) {
@@ -777,7 +812,11 @@ impl Interpreter {
                 }
             }
 
-            write!(handle, " ");
+            if counter < vals_len - 1 {
+                write!(handle, " ");
+            }
+
+            counter += 1;
         }
 
         Ok(Value::Void.into())
@@ -810,5 +849,21 @@ impl Interpreter {
         handle.read_line(&mut string).unwrap();
 
         Ok(Value::String(string).into())
+    }
+
+    fn macro_len(&mut self, args: &[Arg]) -> Result<ValueRef, Error> {
+        let mut vals = Vec::new();
+        for arg in args {
+            vals.push(self.eval_expr(&arg.expr)?);
+        }
+
+        let val_read = vals[0].read().unwrap();
+
+        match &*val_read {
+            &Value::List(List(ref val, _)) => {
+                Ok(Value::Integer(val.len() as _).into())
+            }
+            val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "type doesn't implement 'len'".to_owned()))),
+        }
     }
 }

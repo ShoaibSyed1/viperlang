@@ -1,3 +1,4 @@
+- Function existence checking
 - Option<T> type *
 - Lists
 - Arrays

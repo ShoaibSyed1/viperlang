@@ -74,6 +74,8 @@ pub enum Expr {
     OptionSome(Box<Expr>),
 
     Macro(String, Vec<Arg>),
+
+    Index(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Clone)]
@@ -139,6 +141,7 @@ pub enum Type {
     Class(String), // TODO: Replace String with path type
     Void,
     Option(Box<Type>),
+    List(Box<Type>),
 }
 
 #[derive(Clone)]

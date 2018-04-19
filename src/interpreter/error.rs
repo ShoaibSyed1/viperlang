@@ -28,6 +28,8 @@ pub enum ErrorKind {
     InvalidFor,
     InvalidMacro,
     InvalidList,
+    IndexOutOfRange,
+    InvalidIndex,
 
     Return(ValueRef),
     Break(ValueRef),

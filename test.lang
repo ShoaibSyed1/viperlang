@@ -1,4 +1,33 @@
 fn main() {
-    let list = make int[1, 2, 3];
-    print!(list);
+    let list = make int[5; 20];
+
+    for i in range(0, list.len()) {
+        println!(cast String(i + 1) + ".", list[i]);
+    }
+}
+
+fn range(start: int, end: int): Range {
+    make Range {
+        start: start,
+        end: end,
+
+        cur: start,
+    }
+}
+
+class Range {
+    let start: int;
+    let end: int;
+
+    let cur: int;
+
+    fn next(): option int {
+        if self.cur >= self.end {
+            none(int)
+        } else {
+            let ret = self.cur;
+            self.cur += 1;
+            some(ret)
+        }
+    }
 }

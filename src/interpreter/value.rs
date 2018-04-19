@@ -5,8 +5,9 @@ use std::rc::Rc;
 use std::sync::RwLock;
 
 use ast::Expr;
+use interpreter::error::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Value {
     Boolean(bool),
     Integer(i64),
@@ -19,8 +20,10 @@ pub enum Value {
     Class(Rc<Class>),
     Method(Rc<Method>, ValueRef),
 
+    ExternMethod(Box<fn(&ValueRef, &[ValueRef]) -> Result<ValueRef, Error>>, ValueRef),
+
     Option(Option<ValueRef>, Type),
-    List(Vec<ValueRef>, Type),
+    List(List),
 
     Field(ValueRef, String),
 }
@@ -39,11 +42,39 @@ impl Value {
             &Value::Class(ref class) => Type::Class(Rc::clone(&class.def)),
             &Value::Method(ref met, _) => Type::Method(met.0.def.clone()),
 
+            &Value::ExternMethod(_, _) => Type::ExternMethod,
+
             &Value::Option(_, ref ty) => Type::Option(Box::new(ty.clone())),
-            &Value::List(_, ref ty) => Type::List(Box::new(ty.clone())),
+            &Value::List(List(_, ref ty)) => Type::List(Box::new(ty.clone())),
 
             &Value::Field(ref val_ref, _) => val_ref.read().unwrap().get_type(),
         }
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Value::{}",
+            match self {
+                &Value::Boolean(_) => "Boolean",
+                &Value::Integer(_) => "Integer",
+                &Value::Float(_) => "Float",
+                &Value::String(_) => "String",
+                &Value::Void => "Void",
+
+                &Value::Function(_) => "Function",
+                &Value::Object(_) => "Object",
+                &Value::Class(_) => "Class",
+                &Value::Method(_, _) => "Method",
+
+                &Value::ExternMethod(_, _) => "ExternMethod",
+
+                &Value::Option(_, _) => "Option",
+                &Value::List(_) => "List",
+
+                &Value::Field(_, _) => "Field",
+            }
+        )
     }
 }
 
@@ -69,6 +100,8 @@ pub enum Type {
     Class(Rc<ClassDef>),
     Method(FunctionDef),
 
+    ExternMethod,
+
     Option(Box<Type>),
     List(Box<Type>),
 }
@@ -81,6 +114,9 @@ impl Type {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct List(pub Vec<ValueRef>, pub Type);
 
 #[derive(Clone)]
 pub struct Function {

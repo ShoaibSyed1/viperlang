@@ -157,6 +157,7 @@ ExprUnary: Expr = {
 ExprDot: Expr = {
     <e:ExprDot> "." <i:Ident> => Expr::Dot(Box::new(e), i),
     <e:ExprDot> "(" <a:Args> ")" => Expr::Call(Box::new(e), a),
+    <e:ExprDot> "[" <i:Expr> "]" => Expr::Index(Box::new(e), Box::new(i)),
     <ExprPrimary> => <>,
 };
 
@@ -243,6 +244,7 @@ Type: Type = {
     <Ident> => Type::Class(<>),
     "void" => Type::Void,
     "option" <Type> => Type::Option(Box::new(<>)),
+    "[" <Type> "]" => Type::List(Box::new(<>)),
 };
 
 ItemPath: ItemPath = <i1:Ident> <is:("::" <Ident>)*> => {
