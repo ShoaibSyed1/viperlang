@@ -5,6 +5,7 @@
 - Better list syntax (more rust-like)
   -- And dynamic start length
 - String conversion
+- Exceptions
 
 - Iterators
 - Function existence checking +
