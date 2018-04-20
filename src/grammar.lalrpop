@@ -112,19 +112,7 @@ Stmt: Stmt = {
     "break" <Expr?> ";" => Stmt::Break(<>.unwrap_or(Expr::Literal(Literal::Void))),
 };
 
-Expr: Expr = <ExprAdd> => <>;
-
-ExprAdd: Expr = {
-    <l:ExprAdd> "+" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Add, Box::new(r)),
-    <l:ExprAdd> "-" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Sub, Box::new(r)),
-    <ExprMul> => <>,
-};
-
-ExprMul: Expr = {
-    <l:ExprMul> "*" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Mul, Box::new(r)),
-    <l:ExprMul> "/" <r:ExprEq> => Expr::BinOp(Box::new(l), BinOp::Div, Box::new(r)),
-    <ExprEq> => <>,
-};
+Expr: Expr = <ExprEq> => <>;
 
 ExprEq: Expr = {
     <l:ExprEq> "==" <r:ExprCmp> => Expr::BinOp(Box::new(l), BinOp::Eq, Box::new(r)),
@@ -142,9 +130,23 @@ ExprCmp: Expr = {
 };
 
 ExprBool: Expr = {
-    <l: ExprBool> "||" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Or, Box::new(r)),
-    <l: ExprBool> "&&" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::And, Box::new(r)),
+    <l: ExprBool> "||" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::Or, Box::new(r)),
+    <l: ExprBool> "&&" <r:ExprAdd> => Expr::BinOp(Box::new(l), BinOp::And, Box::new(r)),
 
+    <ExprAdd> => <>,
+};
+
+ExprAdd: Expr = {
+    <l:ExprAdd> "+" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Add, Box::new(r)),
+    <l:ExprAdd> "-" <r:ExprMul> => Expr::BinOp(Box::new(l), BinOp::Sub, Box::new(r)),
+    <ExprMul> => <>,
+};
+
+ExprMul: Expr = {
+    <l:ExprMul> "*" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Mul, Box::new(r)),
+    <l:ExprMul> "/" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Div, Box::new(r)),
+    
+    <l:ExprMul> "%" <r:ExprUnary> => Expr::BinOp(Box::new(l), BinOp::Modulo, Box::new(r)),
     <ExprUnary> => <>,
 };
 
@@ -168,7 +170,7 @@ ExprPrimary: Expr = {
     <Literal> => Expr::Literal(<>),
     <FlowExpr> => <>,
     "make" <e:ExprPrimary> "{" <a:MakeArgs> "}" => Expr::Make(Box::new(e), a),
-    "make" <t:Type> "[" <li:ListInit> "]" => Expr::MakeList(t, li),
+    "[" <t:Type> "]" "[" <li:ListInit> "]" => Expr::MakeList(t, li),
     "some" "(" <e:Expr> ")" => Expr::OptionSome(Box::new(e)),
     <i:Ident> "!" "(" <a:Args> ")" => Expr::Macro(i, a),
 };

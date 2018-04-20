@@ -96,7 +96,37 @@ impl Interpreter {
                             _ => return Err(Error::new(ErrorKind::InvalidLVal)),
                         }
                     }
-                    _ => return Err(Error::new(ErrorKind::InvalidLVal)),
+                    &Expr::Index(ref ilexpr, ref vexpr) => {
+                        let ilval = self.eval_expr(ilexpr)?;
+                        let ival = self.eval_expr(vexpr)?;
+
+                        let lval = self.index(&ilval, &ival, true)?;
+
+                        let lval = lval.read().unwrap();
+
+                        match &*lval {
+                            &Value::Index(ref val_ref, ref ival_ref) => {
+                                let index = match &*ival_ref.read().unwrap() {
+                                    &Value::Integer(val) => val,
+                                    _ => return Err(Error::new(ErrorKind::InvalidIndex)),
+                                };
+
+                                match &mut *val_ref.write().unwrap() {
+                                    &mut Value::List(List(ref mut v, ref ty)) => {
+                                        let vty = val.read().unwrap().get_type();
+                                        if &vty != ty {
+                                            return Err(Error::new(ErrorKind::TypeMismatch(vty, ty.clone(), "cannot add 'type2' to 'type1' list".to_owned())))
+                                        } else {
+                                            v[index as usize] = val;
+                                        }
+                                    },
+                                    _ => panic!("HERE 1"),
+                                }
+                            }
+                            _ => panic!("HERE 2"),
+                        }
+                    },
+                    _ => panic!("HERE 3"),
                 }
 
                 Ok(())
@@ -371,6 +401,8 @@ impl Interpreter {
             &BinOp::Mul => self.do_mul(l, r),
             &BinOp::Div => self.do_div(l, r),
 
+            &BinOp::Modulo => self.do_modulo(l, r),
+
             &BinOp::Eq => self.do_eq(l, r),
             &BinOp::Neq => self.do_neq(l, r),
             
@@ -389,6 +421,17 @@ impl Interpreter {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(ValueRef::new(Value::Integer(i1 + i2).into())),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(ValueRef::new(Value::Float(f1 + f2).into())),
             (&Value::String(ref s1), &Value::String(ref s2)) => Ok(ValueRef::new(Value::String(s1.to_owned() + s2).into())),
+            (&Value::List(List(ref v1, ref t1)), &Value::List(List(ref v2, ref t2))) => {
+                if t1 == t2 {
+                    let mut v = Vec::with_capacity(v1.len() + v2.len());
+                    v.extend_from_slice(v1);
+                    v.extend_from_slice(v2);
+
+                    Ok(Value::List(List(v, t1.clone())).into())
+                } else {
+                    Err(Error::new(ErrorKind::TypeMismatch(t1.clone(), t2.clone(), "cannot add two lists of different types".to_owned())))
+                }
+            },
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'add' for these types".to_owned()))),
         }
     }
@@ -413,6 +456,14 @@ impl Interpreter {
         match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
             (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 / i2).into()),
             (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 / f2).into()),
+            (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'div' for these types".to_owned()))),
+        }
+    }
+
+    fn do_modulo(&self, val1: &ValueRw, val2: &ValueRw) -> Result<ValueRef, Error> {
+        match (&*val1.read().unwrap(), &*val2.read().unwrap()) {
+            (&Value::Integer(i1), &Value::Integer(i2)) => Ok(Value::Integer(i1 % i2).into()),
+            (&Value::Float(f1), &Value::Float(f2)) => Ok(Value::Float(f1 % f2).into()),
             (a, b) => Err(Error::new(ErrorKind::TypeMismatch(a.get_type(), b.get_type(), "no implementation of 'div' for these types".to_owned()))),
         }
     }
@@ -643,14 +694,21 @@ impl Interpreter {
         }
     }
 
-    fn index(&mut self, val: &ValueRef, index: &ValueRef, ret_index: bool) -> Result<ValueRef, Error> {
-        let index = match &*index.read().unwrap() {
+    fn index(&mut self, val: &ValueRef, index_val: &ValueRef, ret_index: bool) -> Result<ValueRef, Error> {
+        let index = match &*index_val.read().unwrap() {
             &Value::Integer(val) => val as usize,
             _ => return Err(Error::new(ErrorKind::InvalidIndex)),
         };
 
         match &*val.read().unwrap() {
-            &Value::List(List(ref vec, _)) => vec.get(index as usize).map(|v| ValueRef::clone(v)).ok_or(Error::new(ErrorKind::IndexOutOfRange)),
+            &Value::List(List(ref vec, _)) => {
+                let ret_val = vec.get(index as usize).map(|v| ValueRef::clone(v)).ok_or(Error::new(ErrorKind::IndexOutOfRange))?;
+                if ret_index {
+                    Ok(Value::Index(ValueRef::clone(val), ValueRef::clone(index_val)).into())
+                } else {
+                    Ok(ret_val)
+                }
+            }
             val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "type does not implement 'index'".to_owned()))),
         }
     }

@@ -26,6 +26,7 @@ pub enum Value {
     List(List),
 
     Field(ValueRef, String),
+    Index(ValueRef, ValueRef),
 }
 
 impl Value {
@@ -48,6 +49,7 @@ impl Value {
             &Value::List(List(_, ref ty)) => Type::List(Box::new(ty.clone())),
 
             &Value::Field(ref val_ref, _) => val_ref.read().unwrap().get_type(),
+            &Value::Index(ref val, _) => val.read().unwrap().get_type(),
         }
     }
 }
@@ -73,6 +75,7 @@ impl fmt::Debug for Value {
                 &Value::List(_) => "List",
 
                 &Value::Field(_, _) => "Field",
+                &Value::Index(_, _) => "Index",
             }
         )
     }

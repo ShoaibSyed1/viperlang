@@ -30,6 +30,7 @@ pub enum ErrorKind {
     InvalidList,
     IndexOutOfRange,
     InvalidIndex,
+    InvalidArgumentAmount,
 
     Return(ValueRef),
     Break(ValueRef),

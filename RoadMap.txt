@@ -1,5 +1,3 @@
-- MODULO OPERATOR
-- Adding lists
 - Comments
 - List Index L-Values
 - Better list syntax (more rust-like)
