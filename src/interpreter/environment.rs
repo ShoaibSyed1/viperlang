@@ -1,15 +1,18 @@
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::RwLock;
 
 use interpreter::error::{Error, ErrorKind};
 use interpreter::value::ValueRef;
 
+#[derive(Clone)]
 pub struct Environment {
-    parent: Option<Box<Environment>>,
+    parent: Option<EnvironmentRef>,
     variables: HashMap<String, ValueRef>,
 }
 
 impl Environment {
-    pub fn new(parent: Option<Box<Environment>>) -> Self {
+    pub fn new(parent: Option<EnvironmentRef>) -> Self {
         Environment {
             parent: parent,
             variables: HashMap::new(),
@@ -27,7 +30,7 @@ impl Environment {
             let cur_variable = self.variables.get(&name);
             if cur_variable.is_none() {
                 if let Some(ref mut env) = self.parent {
-                    return env.assign(name, value);
+                    return env.write().unwrap().assign(name, value);
                 }
             }
             
@@ -50,14 +53,22 @@ impl Environment {
         let mut val = self.variables.get(name).map(|v| ValueRef::clone(v));
         if val.is_none() {
             if let Some(ref env) = self.parent {
-                val = env.get(name);
+                val = env.read().unwrap().get(name);
             }
         }
         
         val
     }
 
-    pub fn get_parent(&mut self) -> Option<Box<Self>> {
+    pub fn get_parent(&mut self) -> Option<EnvironmentRef> {
         ::std::mem::replace(&mut self.parent, None)
+    }
+}
+
+pub type EnvironmentRef = Rc<RwLock<Environment>>;
+
+impl Into<EnvironmentRef> for Environment {
+    fn into(self) -> EnvironmentRef {
+        Rc::new(RwLock::new(self))
     }
 }

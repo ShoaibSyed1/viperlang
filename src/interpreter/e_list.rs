@@ -1,5 +1,5 @@
 use interpreter::error::{Error, ErrorKind};
-use interpreter::value::{FunctionDef, List, Param, Type, Value, ValueRef};
+use interpreter::value::{List, Value, ValueRef};
 
 pub fn get(name: &str, val: ValueRef) -> Option<ValueRef> {
     match name {
@@ -11,7 +11,7 @@ pub fn get(name: &str, val: ValueRef) -> Option<ValueRef> {
     }
 }
 
-fn method_len(list_val: &ValueRef, args: &[ValueRef]) -> Result<ValueRef, Error> {
+fn method_len(list_val: &ValueRef, _: &[ValueRef]) -> Result<ValueRef, Error> {
     let len = match &*list_val.read().unwrap() {
         &Value::List(List(ref vec, _)) => vec.len(),
         val => return Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "expected 'list'".to_owned()))),
@@ -20,7 +20,7 @@ fn method_len(list_val: &ValueRef, args: &[ValueRef]) -> Result<ValueRef, Error>
     Ok(Value::Integer(len as _).into())
 }
 
-fn method_next(list_val: &ValueRef, args: &[ValueRef]) -> Result<ValueRef, Error> {
+fn method_next(list_val: &ValueRef, _: &[ValueRef]) -> Result<ValueRef, Error> {
     let mut val_write = list_val.write().unwrap();
 
     match &mut *val_write {
@@ -57,7 +57,7 @@ fn method_push(list_val: &ValueRef, args: &[ValueRef]) -> Result<ValueRef, Error
     }
 }
 
-fn method_pop(list_val: &ValueRef, args: &[ValueRef]) -> Result<ValueRef, Error> {
+fn method_pop(list_val: &ValueRef, _: &[ValueRef]) -> Result<ValueRef, Error> {
     let mut val_write = list_val.write().unwrap();
 
     match &mut *val_write {

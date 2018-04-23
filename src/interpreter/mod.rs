@@ -1,29 +1,37 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, ListInit, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
+use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, ItemPath, ListInit, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
 
 mod environment;
 mod error;
 mod e_list;
+mod mod_tree;
 mod value;
 
-use self::environment::Environment;
+use self::environment::{Environment, EnvironmentRef};
 use self::error::{Error, ErrorKind};
+use self::mod_tree::ModuleNode;
 use self::value::{Class, ClassDef, Function, FunctionDef, List, Method, Object, Param, Type, Value, ValueRef, ValueRw};
 
 pub struct Interpreter {
-    env: Box<Environment>,
+    env: EnvironmentRef,
+
+    mod_tree: ModuleNode,
+    cur_path: Vec<String>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            env: Box::new(Environment::new(None)),
+            env: Environment::new(None).into(),
+
+            mod_tree: ModuleNode::new(),
+            cur_path: Vec::new(),
         }
     }
 
-    pub fn eval_module(&mut self, module: &Module) -> Result<(), Error> {
+    pub fn eval_module(&mut self, module: &Module, call_main: bool) -> Result<(), Error> {
         for class in &module.classes {
             self.convert_class(class)?;
         }
@@ -32,16 +40,18 @@ impl Interpreter {
             self.convert_function(function)?;
         }
 
-        if let Some(value) = self.env.get("main") {
-            self.call(&value, &[])?;
+        if call_main {
+            if let Some(value) = self.get("main") {
+                self.call(&value, &[])?;
+            }
         }
 
         Ok(())
     }
 
-    pub fn eval_block(&mut self, block: &Block) -> Result<ValueRef, Error> {
-        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
-        self.env = Box::new(env);
+    fn eval_block(&mut self, block: &Block) -> Result<ValueRef, Error> {
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Environment::new(None).into()))).into();
+        self.env = env;
 
         for stmt in &block.0 {
             self.eval_stmt(stmt)?;
@@ -49,7 +59,13 @@ impl Interpreter {
 
         let ret = self.eval_expr(&block.1)?;
 
-        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+        let new_env = self.env
+            .write()
+            .unwrap()
+            .get_parent()
+            .unwrap_or_else(|| EnvironmentRef::new(Environment::new(None).into()));
+
+        self.env = new_env;
         
         Ok(ret)
     }
@@ -69,13 +85,19 @@ impl Interpreter {
                     }
                 }
 
-                self.env.create(name.to_owned(), val)
+                self.create(name.to_owned(), val)
             }
             &Stmt::Assign(ref lexpr, ref rexpr) => {
                 let val = self.eval_expr(rexpr)?;
 
                 match lexpr {
-                    &Expr::Literal(Literal::Ident(ref path)) => self.env.assign(path.0[0].to_owned(), val)?,
+                    &Expr::Literal(Literal::Ident(ref path)) => {
+                        if path.0.len() != 1 {
+                            return Err(Error::new(ErrorKind::InvalidLVal));
+                        } else {
+                            self.assign(path.0.get(0).unwrap().to_owned(), val)?;
+                        }
+                    }
                     &Expr::Dot(ref dlexpr, ref ident) => {
                         let dlval = self.eval_expr(dlexpr)?;
 
@@ -274,14 +296,14 @@ impl Interpreter {
     }
 
     fn eval_if_has(&mut self, val: &ValueRef, name: &str, block: &Block, else_block: &Option<Block>) -> Result<ValueRef, Error> {
-        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
-        self.env = Box::new(env);
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Environment::new(None).into()))).into();
+        self.env = env;
 
         match &*val.read().unwrap() {
             &Value::Option(ref opt, _) => {
                 match opt {
                     Some(val) => {
-                        self.env.create(name.to_owned(), ValueRef::clone(val))?;
+                        self.create(name.to_owned(), ValueRef::clone(val))?;
 
                         return self.eval_block(block);
                     }
@@ -295,7 +317,13 @@ impl Interpreter {
             _ => return Err(Error::new(ErrorKind::InvalidIfHas)),
         }
 
-        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+        let new_env = self.env
+            .write()
+            .unwrap()
+            .get_parent()
+            .unwrap_or_else(|| EnvironmentRef::new(Environment::new(None).into()));
+
+        self.env = new_env;
 
         Ok(Value::Void.into())
     }
@@ -325,8 +353,8 @@ impl Interpreter {
     }
 
     fn eval_for(&mut self, name: &str, val: &ValueRef, block: &Block) -> Result<ValueRef, Error> {
-        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
-        self.env = Box::new(env);
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Environment::new(None).into()))).into();
+        self.env = env;
 
         let method = self.get_method(val, "next").ok_or(Error::new(ErrorKind::InvalidFor))?;        
 
@@ -336,7 +364,7 @@ impl Interpreter {
             let val = self.call(&method, &[])?;
             match &*val.read().unwrap() {
                 &Value::Option(ref opt, _) => match opt {
-                    Some(val) => self.env.create(name.to_owned(), ValueRef::clone(val))?,
+                    Some(val) => self.create(name.to_owned(), ValueRef::clone(val))?,
                     _ => break,
                 },
                 _ => return Err(Error::new(ErrorKind::InvalidIfHas)),
@@ -352,7 +380,13 @@ impl Interpreter {
             }
         }
 
-        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+        let new_env = self.env
+            .write()
+            .unwrap()
+            .get_parent()
+            .unwrap_or_else(|| EnvironmentRef::new(Environment::new(None).into()));
+
+        self.env = new_env;
 
         Ok(ret)
     }
@@ -364,8 +398,7 @@ impl Interpreter {
             &Literal::Float(val) => Ok(ValueRef::new(Value::Float(val).into())),
             &Literal::String(ref val) => Ok(ValueRef::new(Value::String(val.to_owned()).into())),
             &Literal::Ident(ref item_path) => {
-                // TODO: Proper path resolution
-                self.env.get(&item_path.0[0]).ok_or(Error::new(ErrorKind::UnknownName(item_path.0[0].to_owned())))
+                self.get_from_path(&item_path)
             }
             &Literal::Void => Ok(ValueRef::new(Value::Void.into())),
             &Literal::None(ref ty) => Ok(Value::Option(None, self.ast_type_to_runtime_type(ty)?).into()),
@@ -591,13 +624,13 @@ impl Interpreter {
             panic!("num args did not match num params");
         }
 
-        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Box::new(Environment::new(None)))));
-        self.env = Box::new(env);
+        let env = Environment::new(Some(::std::mem::replace(&mut self.env, Environment::new(None).into()))).into();
+        self.env = env;
 
         let func = match &*val_read {
             &Value::Function(ref func) => func,
             &Value::Method(ref method, ref obj) => {
-                self.env.create("self".to_owned(), obj.clone().into())?;
+                self.create("self".to_owned(), obj.clone().into())?;
 
                 &method.0
             },
@@ -605,7 +638,7 @@ impl Interpreter {
         };
 
         for i in 0..(func.def.params.len()) {
-            self.env.create(func.def.params[i].name.clone(), vals[i].clone())?;
+            self.create(func.def.params[i].name.clone(), vals[i].clone())?;
         }
 
         let ret = match self.eval_expr(&func.body) {
@@ -621,7 +654,13 @@ impl Interpreter {
             return Err(Error::new(ErrorKind::TypeMismatch(ret_read.get_type(), (&*func.def.ret).clone(), "tried to return 'type1' from function with return type 'type2'".to_owned())));
         }
 
-        self.env = self.env.get_parent().unwrap_or_else(|| Box::new(Environment::new(None)));
+        let new_env = self.env
+            .write()
+            .unwrap()
+            .get_parent()
+            .unwrap_or_else(|| EnvironmentRef::new(Environment::new(None).into()));
+
+        self.env = new_env;
 
         Ok(ret.clone())
     }
@@ -663,7 +702,7 @@ impl Interpreter {
     }
 
     fn dot(&mut self, val: ValueRef, ident: &str, ret_field: bool) -> Result<ValueRef, Error> {
-        let mut val_read = val.read().unwrap();
+        let val_read = val.read().unwrap();
         match &*val_read {
             &Value::Object(ref obj) => {
                 match obj.fields.get(ident) {
@@ -720,7 +759,7 @@ impl Interpreter {
             &AstType::Float => Ok(Type::Float),
             &AstType::String => Ok(Type::String),
             &AstType::Class(ref name) => {
-                let val = self.env.get(name)
+                let val = self.get(name)
                     .ok_or(Error::new(ErrorKind::InvalidClass(name.to_owned(), "no such class found".to_owned())))?;
                 
                 let val: &Value = &*val.read().unwrap();
@@ -774,7 +813,7 @@ impl Interpreter {
     fn convert_function(&mut self, function: &AstFunction) -> Result<(), Error> {
         let runtime_func = self.ast_function_to_runtime_function(function)?;
 
-        self.env.create(function.name.clone(), Value::Function(runtime_func.into()).into())?;
+        self.create(function.name.clone(), Value::Function(runtime_func.into()).into())?;
 
         Ok(())
     }
@@ -791,7 +830,7 @@ impl Interpreter {
 
         let value = ValueRef::new(ValueRw::new(Value::Class(Rc::new(temp_class))));
 
-        self.env.create(ast_class.name.clone(), ValueRef::clone(&value))?;
+        self.create(ast_class.name.clone(), ValueRef::clone(&value))?;
 
         let mut field_map = HashMap::new();
 
@@ -915,7 +954,12 @@ impl Interpreter {
             vals.push(self.eval_expr(&arg.expr)?);
         }
 
-        let val_read = vals[0].read().unwrap();
+        let val = match vals.get(0) {
+            Some(val) => val,
+            None => return Err(Error::new(ErrorKind::InvalidArgumentAmount)),
+        };
+
+        let val_read = val.read().unwrap();
 
         match &*val_read {
             &Value::List(List(ref val, _)) => {
@@ -923,5 +967,50 @@ impl Interpreter {
             }
             val => Err(Error::new(ErrorKind::TypeMismatch(val.get_type(), val.get_type(), "type doesn't implement 'len'".to_owned()))),
         }
+    }
+
+    fn create(&mut self, name: String, value: ValueRef) -> Result<(), Error> {
+        self.env.write().unwrap().create(name, value)
+    }
+
+    fn assign(&mut self, name: String, value: ValueRef) -> Result<(), Error> {
+        self.env.write().unwrap().assign(name, value)
+    }
+
+    fn get(&self, name: &str) -> Option<ValueRef> {
+        self.env.read().unwrap().get(name)
+    }
+    
+    fn get_from_path(&self, path: &ItemPath) -> Result<ValueRef, Error> {
+        use self::mod_tree::ModuleNode;
+
+        if path.0.len() == 0 {
+            Err(Error::new(ErrorKind::InvalidPath))
+        } else if path.0.len() == 1 {
+            self.get(&path.0[0]).ok_or(Error::new(ErrorKind::UnknownName(path.0[0].to_owned())))
+        } else {
+            let mut node: &ModuleNode = &self.mod_tree;
+
+            for i in 0..(path.0.len()-1) {
+                let part = &path.0[i];
+
+                node = node.children.get(part).ok_or(Error::new(ErrorKind::InvalidPath))?;
+            }
+
+            node.env.read().unwrap().get(&path.0[path.0.len()-1]).ok_or(Error::new(ErrorKind::InvalidPath))
+        }
+    }
+
+    fn create_module(&mut self, module: &Module) -> Result<EnvironmentRef, Error> {
+        let cur_env = EnvironmentRef::clone(&self.env);
+        self.env = Environment::new(None).into();
+        
+        self.eval_module(module, false)?;
+
+        let mod_env = EnvironmentRef::clone(&self.env);
+
+        self.env = cur_env;
+
+        Ok(mod_env)
     }
 }

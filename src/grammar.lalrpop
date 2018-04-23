@@ -95,7 +95,7 @@ Param: Param = <i:Ident> ":" <t:Type> <d:("=" <Literal>)?> => Param {
     default: d,
 };
 
-pub Block: Block = <s:Stmt*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| Expr::Literal(Literal::Void))));
+pub Block: Block = <s:Stmt*> <c:Comment*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| Expr::Literal(Literal::Void))));
 
 Stmt: Stmt = {
     "let" <i:Ident> <t:(":" <Type>)?> "=" <e:Expr> ";" => Stmt::Let(i, t, e),
@@ -260,3 +260,5 @@ Integer: i64 = <num:r"[0-9]+"> => i64::from_str(num).unwrap();
 String: String = <r#""[^"\\]*((\\.)*[^"\\]*)*""#> => <>[1..(<>.len()-1)].to_owned();
 
 Ident: String = <r"[_a-zA-Z]+[_a-zA-Z0-9]*"> => <>.to_owned();
+
+Comment: String = <r#"//.*"#> => <>.to_owned();
