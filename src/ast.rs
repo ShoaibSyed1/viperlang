@@ -1,7 +1,10 @@
 pub struct Module {
     pub classes: Vec<Class>,
     pub functions: Vec<Function>,
+    pub mods: Vec<Mod>,
 }
+
+pub type Mod = String;
 
 #[derive(Clone)]
 pub struct Class {

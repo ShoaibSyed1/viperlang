@@ -12,15 +12,26 @@ impl ModuleTree {
     }
 }
 
-pub struct ModuleNode {
-    pub children: HashMap<String, ModuleNode>,
-    pub env: EnvironmentRef,
+pub enum ModuleNode {
+    Base {
+        children: HashMap<String, ModuleNode>,
+        env: EnvironmentRef,
+    },
+    Leaf {
+        env: EnvironmentRef,
+    },
 }
 
 impl ModuleNode {
-    pub fn new() -> Self {
-        ModuleNode {
+    pub fn new_base() -> Self {
+        ModuleNode::Base {
             children: HashMap::new(),
+            env: Environment::new(None).into(),
+        }
+    }
+
+    pub fn new_leaf() -> Self {
+        ModuleNode::Leaf {
             env: Environment::new(None).into(),
         }
     }

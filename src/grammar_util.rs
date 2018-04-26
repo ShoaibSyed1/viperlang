@@ -1,8 +1,9 @@
-use ast::{Class, Field, Function, Method};
+use ast::{Class, Field, Function, Method, Mod};
 
 pub enum ModuleItem {
     Class(Class),
     Function(Function),
+    Mod(Mod),
 }
 
 pub enum ClassItem {

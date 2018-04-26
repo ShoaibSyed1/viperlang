@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, ListInit, Literal, MakeArg, Method, Module, Param, Stmt, Type, UnOp};
+use ast::{Arg, BinOp, Block, Class, Expr, Field, Function, ItemPath, ListInit, Literal, MakeArg, Method, Mod, Module, Param, Stmt, Type, UnOp};
 use grammar_util::{ModuleItem, ClassItem};
 
 grammar;
@@ -8,23 +8,27 @@ grammar;
 pub Module: Module = <ModuleItem*> => {
     let mut classes = Vec::new();
     let mut functions = Vec::new();
+    let mut mods = Vec::new();
 
     for item in <> {
         match item {
             ModuleItem::Class(class) => classes.push(class),
             ModuleItem::Function(function) => functions.push(function),
+            ModuleItem::Mod(module) => mods.push(module),
         }
     }
 
     Module {
         classes: classes,
         functions: functions,
+        mods: mods,
     }
 };
 
 ModuleItem: ModuleItem = {
     <Class> => ModuleItem::Class(<>),
     <Function> => ModuleItem::Function(<>),
+    <Mod> => ModuleItem::Mod(<>),
 };
 
 Class: Class = {
@@ -94,6 +98,8 @@ Param: Param = <i:Ident> ":" <t:Type> <d:("=" <Literal>)?> => Param {
     ty: t,
     default: d,
 };
+
+Mod: Mod = "mod" <Ident> ";" => <>;
 
 pub Block: Block = <s:Stmt*> <c:Comment*> <e:Expr?> => Block(s, Box::new(e.unwrap_or_else(|| Expr::Literal(Literal::Void))));
 

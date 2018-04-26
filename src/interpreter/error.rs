@@ -32,6 +32,8 @@ pub enum ErrorKind {
     InvalidIndex,
     InvalidArgumentAmount,
     InvalidPath,
+    FailedToOpenModule,
+    FailedToLoadModule,
 
     Return(ValueRef),
     Break(ValueRef),

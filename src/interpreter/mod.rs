@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use ast::{Arg, BinOp, Block, Class as AstClass, Expr, Function as AstFunction, ItemPath, ListInit, Literal, MakeArg, Module, Stmt, Type as AstType, UnOp};
@@ -22,11 +23,11 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub fn new() -> Self {
+    pub fn new(mod_tree: ModuleNode) -> Self {
         Interpreter {
             env: Environment::new(None).into(),
 
-            mod_tree: ModuleNode::new(),
+            mod_tree: mod_tree,
             cur_path: Vec::new(),
         }
     }
@@ -916,6 +917,8 @@ impl Interpreter {
             counter += 1;
         }
 
+        handle.flush().unwrap();
+
         Ok(Value::Void.into())
     }
 
@@ -1012,5 +1015,45 @@ impl Interpreter {
         self.env = cur_env;
 
         Ok(mod_env)
+    }
+
+    pub fn create_module_tree(base: &Path) -> Result<ModuleNode, Error> {
+        Self::create_module_base(base, "main")
+    }
+
+    fn create_module_base(base: &Path, name: &str) -> Result<ModuleNode, Error> {
+        let mut module_path = PathBuf::from(&base);
+        module_path.push(name.to_owned() + ".viper");
+
+        let mut node = ModuleNode::new_base();
+        let module = Self::load_module(&module_path)?;
+
+        for module_name in &module.mods {
+
+        }
+
+        Ok(node)
+    }
+
+    fn create_module_leaf(path: &Path) -> Result<ModuleNode, Error> {
+        let mut node = ModuleNode::new_leaf();
+    }
+
+    fn load_module<P: AsRef<Path>>(path: P) -> Result<Module, Error> {
+        use std::fs::File;
+        use std::io::Read;
+
+        use grammar;
+
+        let mut file = File::open(path).map_err(|_| Error::new(ErrorKind::FailedToOpenModule))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).map_err(|_| Error::new(ErrorKind::FailedToLoadModule))?;
+
+        match grammar::ModuleParser::new().parse(&contents) {
+            Ok(module) => Ok(module),
+            Err(e) => {
+                panic!("{}", e);
+            }
+        }
     }
 }
